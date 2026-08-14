@@ -64,6 +64,8 @@ Every operation below must be safe to call more than once for the same `sagaId` 
 
 This requires every leg service and the payment service to persist enough state, keyed by `sagaId`, to recognize a repeat call and short-circuit to the original result — not just tolerate a second attempt as if it were new.
 
-## Readiness notes — open before this can be implemented
+## Readiness notes
 
-1. **REST/controller layer** — not yet defined for `booking-service`, `flight-service`, `hotel-service`, `car-service`, or `payment-service`. Every operation in the tables above needs a concrete HTTP shape (method, path, request/response body, status code) — the natural next step once this doc and the definitions doc are agreed.
+**Implemented.** The one readiness gate this doc originally flagged — a REST/controller layer for `booking-service`, `flight-service`, `hotel-service`, `car-service`, and `payment-service`, since every operation in the tables above needs a concrete HTTP shape (method, path, request/response body, status code) — is now built for all five: `booking-service`'s per [`controller-layer-plan.md`](./controller-layer-plan.md), the other four self-documented via OpenAPI annotations and each controller's own javadoc (see the repo's `CLAUDE.md`, Current state). The full main flow above (steps 1-8) runs end to end against real HTTP and real per-service databases — verified by `platform-test`'s `TravelBookingEndToEndSagaIT` and `e2e-happy-path.sh` (see `CLAUDE.md`).
+
+This doc's own "pending" business-review/terminology-reconciliation status (top of file) is a separate, still-open concern from implementation completeness — code being built and passing doesn't itself resolve that review.
