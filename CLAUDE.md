@@ -40,11 +40,28 @@ project progresses." Concretely, as of this scaffold:
   steps 1-8) is fully implemented, including E1/E2 compensation (use-case-errors.md) via manual
   per-`Promise` inspection rather than `io.temporal.workflow.Saga` (that class's LIFO stack doesn't
   fit a parallel fan-out — see that Workflow class's own javadoc).
+- `flight-service`, `hotel-service`, `car-service` — `domain`/`persistence`/`service` layers
+  implemented: a `{Flight,Hotel,Car}Reservation` aggregate (record) + `ReservationStatus`
+  (`RESERVED`→`{CONFIRMED, CANCELLED}`, both terminal) + `IllegalReservationTransitionException`,
+  a bare `ReactiveCrudRepository`, and a `*ReservationProgressionService` with
+  reserve/confirm/cancel — idempotent by `sagaId`, same shape as `booking-service`'s
+  `TravelBookingProgressionService`. Each has a V1 Flyway migration. Unit-tested against a mocked
+  repository (Mockito + `StepVerifier`) — 10 tests per service, covering idempotency, the
+  not-found path, and both illegal-transition cases (confirming a cancelled reservation, cancelling
+  a confirmed one).
+- `payment-service` — same shape, adapted to hold/capture/release: `PaymentHold` aggregate +
+  `PaymentHoldStatus` (`HELD`→`{CAPTURED, RELEASED}`, both terminal — capturing then releasing is
+  correctly rejected, since undoing a capture is a refund, not a release, per
+  business-definitions.md §3) + `IllegalPaymentHoldTransitionException`,
+  `PaymentHoldRepository`, `PaymentHoldProgressionService`. No amount field anywhere — same "no
+  price computation" rule as everywhere else in this saga.
+- No web/REST layer yet on any of the four business services (see below).
 
-**Scaffolded, not yet implemented (pom.xml + `Application` class + `application.yml` only):**
-- `flight-service`, `hotel-service`, `car-service`, `payment-service` — no domain/persistence/web
-  layers. Their REST contracts (reserve/confirm, hold/capture) haven't been designed yet the way
-  `booking-service`'s was in `controller-layer-plan.md`; that's the natural next doc to write.
+**Scaffolded, not yet implemented:**
+- `flight-service`, `hotel-service`, `car-service`, `payment-service` — no `web` layer. Their REST
+  contracts (reserve/confirm, hold/capture) haven't been designed yet the way `booking-service`'s
+  was in `controller-layer-plan.md`; that's the natural next doc to write, and is why
+  `saga-orchestrator-temporal`'s Activity implementations (below) still can't exist either.
 - `saga-orchestrator-temporal`'s Activity **implementations** (the `FlightActivities`/
   `HotelActivities`/`CarActivities`/`PaymentActivities` interfaces exist and are used by
   `TravelBookingSagaWorkflowImpl`; their `WebClient`-based `*Impl` classes don't exist yet, since
@@ -55,10 +72,10 @@ project progresses." Concretely, as of this scaffold:
   `TravelBookingSagaWorkflowImpl` receives it into an unread field; nothing compensates an in-flight
   saga on cancellation yet. Depends on E1/E2/E3 all being resolved with a consistent mechanism first.
 - `platform-test` — pom.xml only, no `*IT.java`. Can't drive a real end-to-end saga until the four
-  scaffolded services above have working REST endpoints.
-- No tests anywhere yet (`*Test.java`/`*IT.java`) despite TDD being this project's stated convention
-  (below) — deliberately deferred in this initial scaffolding pass; next real step per service is
-  TDD from here, not backfilling tests onto already-written code.
+  business services have working REST endpoints.
+- `booking-service`'s own `service`/`domain` layers still have no dedicated unit tests of their own
+  (only `BookingControllerTest`, which mocks the service) — a pre-existing gap from the initial
+  scaffold, not touched by the leg/payment service work above.
 
 ## Conventions
 
@@ -101,6 +118,23 @@ execution. Activity implementations (`saga-orchestrator-temporal`'s `activities/
 once they exist) are plain Spring beans making blocking HTTP calls, not Workflow code subject to
 replay — they use ordinary `@Slf4j`, same as `service`/`web`/`persistence`.
 
+### String null-or-blank checks
+
+When a single boolean decision is "is this string absent" (null or blank collapsed into one
+question — e.g. an optional field defaulting to something else when unset), use
+`!org.springframework.util.StringUtils.hasText(value)` in one call, never a hand-rolled
+`value == null || value.isBlank()`. Example: `CreateBookingRequestBody.hasNoBusinessKey()`.
+
+This is a **different case** from a compact constructor's required-field validation (every
+`saga-common` and `booking-service` record's canonical constructor): those deliberately keep
+`Objects.requireNonNull(value, "value must not be null")` and a separate `if (value.isBlank())
+throw new IllegalArgumentException("value must not be blank")` as two steps, not one
+`StringUtils.hasText` check — collapsing them would lose the distinct exception type and message
+per failure mode (a null field surfaces as `NullPointerException`/"must not be null", a
+present-but-blank one as `IllegalArgumentException`/"must not be blank"), which `RestExceptionHandler`
+and the tests both rely on. `StringUtils.hasText` is for a single yes/no presence question with one
+outcome, not for input validation that needs to say *which* way the field was invalid.
+
 ## Architecture
 
 ### What's identical to `temporal-saga-pattern`
@@ -118,11 +152,12 @@ booking-specific). Host port *numbers* are deliberately not identical — see Lo
   `SagaTaskQueues`).
 - `booking-service` — `domain`/`persistence`/`service`/`web`; starts and signals the Workflow, and
   is called back by it to confirm.
-- `flight-service`, `hotel-service`, `car-service`, `payment-service` — scaffolded only (see above).
+- `flight-service`, `hotel-service`, `car-service`, `payment-service` — `domain`/`persistence`/
+  `service` implemented; no `web` yet (see above).
 - `saga-orchestrator-temporal` — `workflow/TravelBookingSagaWorkflowImpl` (implemented) +
   `activities/` (five `@ActivityInterface`s, implemented; `*Impl` classes not yet) +
   `config/` (not yet — `ActivityWebClientConfig`/`VirtualThreadWorkerOptionsCustomizer` equivalents
-  wait on the leg/payment services existing).
+  wait on the leg/payment services' `web` layers existing).
 - `platform-test` — pom.xml only for now.
 
 Ports are offset by +10 from `temporal-saga-pattern`'s equivalent range (`8080`-`8083`), same

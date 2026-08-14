@@ -1,0 +1,164 @@
+package com.bravo.saga.car.service;
+
+import com.bravo.saga.car.domain.CarReservation;
+import com.bravo.saga.car.domain.IllegalReservationTransitionException;
+import com.bravo.saga.car.domain.ReservationStatus;
+import com.bravo.saga.car.persistence.CarReservationRepository;
+import com.bravo.saga.common.workflow.CarBookingRequest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/** Adapter-free unit test for {@link CarReservationProgressionService} — {@link CarReservationRepository} is mocked. */
+@ExtendWith(MockitoExtension.class)
+class CarReservationProgressionServiceTest {
+
+    private static final Instant NOW = Instant.parse("2026-08-14T10:00:00Z");
+
+    @Mock
+    private CarReservationRepository carReservationRepository;
+
+    private CarReservationProgressionService service;
+
+    @BeforeEach
+    void setUp() {
+        this.service = new CarReservationProgressionService(this.carReservationRepository);
+        lenient().when(this.carReservationRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+    }
+
+    @Test
+    void reserveCarCreatesANewReservationWhenNoneExistsForTheSagaId() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.reserveCar(new ReserveCarRequest(sagaId, carBooking(), NOW)))
+                .assertNext(reservation -> {
+                    assertThat(reservation.id()).isEqualTo(sagaId);
+                    assertThat(reservation.carCategory()).isEqualTo("COMPACT");
+                    assertThat(reservation.status()).isEqualTo(ReservationStatus.RESERVED);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void reserveCarIsIdempotentAndReturnsTheExistingReservation() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation existing = CarReservation.reserve(sagaId, carBooking(), NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(this.service.reserveCar(new ReserveCarRequest(sagaId, carBooking(), NOW)))
+                .assertNext(reservation -> assertThat(reservation).isEqualTo(existing))
+                .verifyComplete();
+
+        verify(this.carReservationRepository, never()).save(any());
+    }
+
+    @Test
+    void confirmCarAdvancesFromReservedToConfirmed() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation reserved = CarReservation.reserve(sagaId, carBooking(), NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(reserved));
+
+        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+                .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CONFIRMED))
+                .verifyComplete();
+    }
+
+    @Test
+    void confirmCarIsIdempotentWhenAlreadyConfirmed() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation confirmed = CarReservation.reserve(sagaId, carBooking(), NOW).confirm(NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(confirmed));
+
+        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+                .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CONFIRMED))
+                .verifyComplete();
+
+        verify(this.carReservationRepository, never()).save(any());
+    }
+
+    @Test
+    void confirmCarFailsWhenNotFound() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+                .expectError(IllegalStateException.class)
+                .verify();
+    }
+
+    @Test
+    void confirmCarThrowsWhenAlreadyCancelled() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation cancelled = CarReservation.reserve(sagaId, carBooking(), NOW).cancel(NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(cancelled));
+
+        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+                .expectError(IllegalReservationTransitionException.class)
+                .verify();
+    }
+
+    @Test
+    void cancelCarReservationAdvancesFromReservedToCancelled() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation reserved = CarReservation.reserve(sagaId, carBooking(), NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(reserved));
+
+        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+                .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CANCELLED))
+                .verifyComplete();
+    }
+
+    @Test
+    void cancelCarReservationIsIdempotentWhenAlreadyCancelled() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation cancelled = CarReservation.reserve(sagaId, carBooking(), NOW).cancel(NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(cancelled));
+
+        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+                .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CANCELLED))
+                .verifyComplete();
+
+        verify(this.carReservationRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelCarReservationFailsWhenNotFound() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+                .expectError(IllegalStateException.class)
+                .verify();
+    }
+
+    @Test
+    void cancelCarReservationThrowsWhenAlreadyConfirmed() {
+        final UUID sagaId = UUID.randomUUID();
+        final CarReservation confirmed = CarReservation.reserve(sagaId, carBooking(), NOW).confirm(NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(confirmed));
+
+        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+                .expectError(IllegalReservationTransitionException.class)
+                .verify();
+    }
+
+    private static CarBookingRequest carBooking() {
+        return new CarBookingRequest("COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), UUID.randomUUID());
+    }
+}
