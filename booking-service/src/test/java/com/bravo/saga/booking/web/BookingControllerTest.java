@@ -46,8 +46,8 @@ class BookingControllerTest {
 
     @BeforeEach
     void setUp() {
-        client = WebTestClient.bindToController(
-                        new BookingController(bookingCreationHandler, bookingCancellationHandler, travelBookingProgressionService))
+        this.client = WebTestClient.bindToController(
+                        new BookingController(this.bookingCreationHandler, this.bookingCancellationHandler, this.travelBookingProgressionService))
                 .controllerAdvice(new RestExceptionHandler())
                 .build();
     }
@@ -57,12 +57,12 @@ class BookingControllerTest {
     @Test
     void buyPackageReturns202AcceptedWhenANewBookingIsCreated() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCreationHandler.createBooking(any())).thenReturn(Mono.just(
+        when(this.bookingCreationHandler.createBooking(any())).thenReturn(Mono.just(
                 new BookingCreationHandler.BookingCreationOutcome(
                         new CreateBookingResponseBody(sagaId, "biz-2026-08-13-0001", TravelBookingStatus.PENDING),
                         true)));
 
-        client.post().uri("/travel-bookings")
+        this.client.post().uri("/travel-bookings")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(validBuyRequestJson("biz-2026-08-13-0001"))
                 .exchange()
@@ -76,12 +76,12 @@ class BookingControllerTest {
     @Test
     void buyPackageReturns200WhenABookingForThisBusinessKeyAlreadyExisted() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCreationHandler.createBooking(any())).thenReturn(Mono.just(
+        when(this.bookingCreationHandler.createBooking(any())).thenReturn(Mono.just(
                 new BookingCreationHandler.BookingCreationOutcome(
                         new CreateBookingResponseBody(sagaId, "biz-2026-08-13-0001", TravelBookingStatus.CONFIRMED),
                         false)));
 
-        client.post().uri("/travel-bookings")
+        this.client.post().uri("/travel-bookings")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(validBuyRequestJson("biz-2026-08-13-0001"))
                 .exchange()
@@ -92,7 +92,7 @@ class BookingControllerTest {
 
     @Test
     void buyPackageReturns400WhenTheRequestBodyIsInvalid() {
-        final ResponseSpec response = client.post().uri("/travel-bookings")
+        final ResponseSpec response = this.client.post().uri("/travel-bookings")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {
@@ -112,10 +112,10 @@ class BookingControllerTest {
     @Test
     void cancelPurchaseReturns202AcceptedWhenCancellationIsStartedFromPending() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCancellationHandler.cancelBooking(any(), any()))
+        when(this.bookingCancellationHandler.cancelBooking(any(), any()))
                 .thenReturn(Mono.just(new BookingStatusResponseBody(sagaId, TravelBookingStatus.PENDING)));
 
-        client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId)
+        this.client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId)
                 .exchange()
                 .expectStatus().isEqualTo(202)
                 .expectBody()
@@ -126,10 +126,10 @@ class BookingControllerTest {
     @Test
     void cancelPurchaseAcceptsAnExplicitReasonBody() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCancellationHandler.cancelBooking(any(), any()))
+        when(this.bookingCancellationHandler.cancelBooking(any(), any()))
                 .thenReturn(Mono.just(new BookingStatusResponseBody(sagaId, TravelBookingStatus.PENDING)));
 
-        client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId)
+        this.client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
                         {"reason":"customer changed mind"}""")
@@ -140,10 +140,10 @@ class BookingControllerTest {
     @Test
     void cancelPurchaseReturns200WhenTheBookingWasAlreadyCancelled() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCancellationHandler.cancelBooking(any(), any()))
+        when(this.bookingCancellationHandler.cancelBooking(any(), any()))
                 .thenReturn(Mono.just(new BookingStatusResponseBody(sagaId, TravelBookingStatus.CANCELLED)));
 
-        client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId)
+        this.client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -153,10 +153,10 @@ class BookingControllerTest {
     @Test
     void cancelPurchaseReturns409WhenTheBookingIsAlreadyConfirmed() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCancellationHandler.cancelBooking(any(), any()))
+        when(this.bookingCancellationHandler.cancelBooking(any(), any()))
                 .thenReturn(Mono.error(new BookingAlreadyConfirmedException(sagaId)));
 
-        final ResponseSpec response = client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId).exchange();
+        final ResponseSpec response = this.client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId).exchange();
 
         assertProblemDetail(response, 409,
                 "Booking " + sagaId + " is already confirmed and paid; cancellation after confirmation requires a refund, which is not yet supported");
@@ -165,10 +165,10 @@ class BookingControllerTest {
     @Test
     void cancelPurchaseReturns409WhenTheBookingAlreadyFailed() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCancellationHandler.cancelBooking(any(), any()))
+        when(this.bookingCancellationHandler.cancelBooking(any(), any()))
                 .thenReturn(Mono.error(new BookingAlreadyFailedException(sagaId)));
 
-        final ResponseSpec response = client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId).exchange();
+        final ResponseSpec response = this.client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId).exchange();
 
         assertProblemDetail(response, 409, "Booking " + sagaId + " already ended due to a step failure, not a cancellation request");
     }
@@ -176,10 +176,10 @@ class BookingControllerTest {
     @Test
     void cancelPurchaseReturns404WhenNoBookingExistsForTheSagaId() {
         final UUID sagaId = UUID.randomUUID();
-        when(bookingCancellationHandler.cancelBooking(any(), any()))
+        when(this.bookingCancellationHandler.cancelBooking(any(), any()))
                 .thenReturn(Mono.error(new BookingNotFoundException(sagaId)));
 
-        final ResponseSpec response = client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId).exchange();
+        final ResponseSpec response = this.client.post().uri("/travel-bookings/{sagaId}/cancel", sagaId).exchange();
 
         assertProblemDetail(response, 404, "No booking found for sagaId " + sagaId);
     }
@@ -191,9 +191,9 @@ class BookingControllerTest {
         final UUID sagaId = UUID.randomUUID();
         final TravelBooking confirmedBooking = TravelBooking.create(sagaId, "biz-2026-08-13-0001", "agency-042", Instant.now())
                 .confirm(Instant.now());
-        when(travelBookingProgressionService.confirmBooking(any())).thenReturn(Mono.just(confirmedBooking));
+        when(this.travelBookingProgressionService.confirmBooking(any())).thenReturn(Mono.just(confirmedBooking));
 
-        client.post().uri("/travel-bookings/{sagaId}/confirm", sagaId)
+        this.client.post().uri("/travel-bookings/{sagaId}/confirm", sagaId)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()

@@ -42,6 +42,6 @@ public record CreateBookingRequestBody(
     }
 
     public Boolean hasNoBusinessKey() {
-        return !StringUtils.hasText(businessKey);
+        return !StringUtils.hasText(this.businessKey);
     }
 }

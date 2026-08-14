@@ -68,26 +68,26 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
     @Override
     public void process(final TravelBookingSagaInput input) {
         log.debug("process - {}", input);
-        reserveAllLegsOrCompensate(input);
+        this.reserveAllLegsOrCompensate(input);
 
         try {
-            paymentActivities.holdPayment(input.sagaId(), input.paymentAuthorizationToken());
+            this.paymentActivities.holdPayment(input.sagaId(), input.paymentAuthorizationToken());
         } catch (final RuntimeException holdFailed) {
             // E2: the hold is only attempted once all three reservations are already known to have
             // succeeded — compensation here is deterministic, not partial (use-case-errors.md, E2).
-            cancelReservationsInParallel(input).forEach(Promise::get);
+            this.cancelReservationsInParallel(input).forEach(Promise::get);
             throw holdFailed;
         }
 
         // Stage 2 — parallel confirmations. A failure here is E3, still PENDING (this class's own
         // javadoc): deliberately not compensated, just propagated.
-        final Promise<Void> flightConfirmed = Async.procedure(flightActivities::confirmFlight, input.sagaId());
-        final Promise<Void> hotelConfirmed = Async.procedure(hotelActivities::confirmHotel, input.sagaId());
-        final Promise<Void> carConfirmed = Async.procedure(carActivities::confirmCar, input.sagaId());
+        final Promise<Void> flightConfirmed = Async.procedure(this.flightActivities::confirmFlight, input.sagaId());
+        final Promise<Void> hotelConfirmed = Async.procedure(this.hotelActivities::confirmHotel, input.sagaId());
+        final Promise<Void> carConfirmed = Async.procedure(this.carActivities::confirmCar, input.sagaId());
         Promise.allOf(flightConfirmed, hotelConfirmed, carConfirmed).get();
 
-        paymentActivities.capturePayment(input.sagaId());
-        bookingActivities.confirmBooking(input.sagaId());
+        this.paymentActivities.capturePayment(input.sagaId());
+        this.bookingActivities.confirmBooking(input.sagaId());
     }
 
     /**
@@ -98,9 +98,9 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
      * actually succeeded, in parallel — no ordering between them, since the legs are independent.
      */
     private void reserveAllLegsOrCompensate(final TravelBookingSagaInput input) {
-        final Promise<Void> flightReserved = Async.procedure(flightActivities::reserveFlight, input.sagaId(), input.flightBooking());
-        final Promise<Void> hotelReserved = Async.procedure(hotelActivities::reserveHotel, input.sagaId(), input.hotelBooking());
-        final Promise<Void> carReserved = Async.procedure(carActivities::reserveCar, input.sagaId(), input.carBooking());
+        final Promise<Void> flightReserved = Async.procedure(this.flightActivities::reserveFlight, input.sagaId(), input.flightBooking());
+        final Promise<Void> hotelReserved = Async.procedure(this.hotelActivities::reserveHotel, input.sagaId(), input.hotelBooking());
+        final Promise<Void> carReserved = Async.procedure(this.carActivities::reserveCar, input.sagaId(), input.carBooking());
 
         RuntimeException firstFailure = null;
         boolean flightSucceeded = false;
@@ -130,7 +130,7 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
             return;
         }
 
-        cancelSucceededReservationsInParallel(input, flightSucceeded, hotelSucceeded, carSucceeded).forEach(Promise::get);
+        this.cancelSucceededReservationsInParallel(input, flightSucceeded, hotelSucceeded, carSucceeded).forEach(Promise::get);
         throw firstFailure;
     }
 
@@ -140,24 +140,24 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
             final boolean carSucceeded) {
         final List<Promise<Void>> compensations = new ArrayList<>();
         if (flightSucceeded) {
-            compensations.add(Async.procedure(flightActivities::cancelFlightReservation, input.sagaId()));
+            compensations.add(Async.procedure(this.flightActivities::cancelFlightReservation, input.sagaId()));
         }
         if (hotelSucceeded) {
-            compensations.add(Async.procedure(hotelActivities::cancelHotelReservation, input.sagaId()));
+            compensations.add(Async.procedure(this.hotelActivities::cancelHotelReservation, input.sagaId()));
         }
         if (carSucceeded) {
-            compensations.add(Async.procedure(carActivities::cancelCarReservation, input.sagaId()));
+            compensations.add(Async.procedure(this.carActivities::cancelCarReservation, input.sagaId()));
         }
         return compensations;
     }
 
     private List<Promise<Void>> cancelReservationsInParallel(final TravelBookingSagaInput input) {
-        return cancelSucceededReservationsInParallel(input, true, true, true);
+        return this.cancelSucceededReservationsInParallel(input, true, true, true);
     }
 
     @Override
     public void cancel() {
         log.debug("cancel");
-        cancellationRequested = true;
+        this.cancellationRequested = true;
     }
 }

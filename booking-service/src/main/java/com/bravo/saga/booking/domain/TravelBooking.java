@@ -55,15 +55,15 @@ public record TravelBooking(
      * @throws IllegalTravelBookingTransitionException if {@code status} cannot transition to {@link TravelBookingStatus#CONFIRMED}
      */
     public TravelBooking confirm(final Instant now) {
-        return advanceTo(TravelBookingStatus.CONFIRMED, now);
+        return this.advanceTo(TravelBookingStatus.CONFIRMED, now);
     }
 
     private TravelBooking advanceTo(final TravelBookingStatus target,
             final Instant now) {
         Objects.requireNonNull(now, "now must not be null");
-        if (!status.canTransitionTo(target)) {
-            throw new IllegalTravelBookingTransitionException(status, target);
+        if (!this.status.canTransitionTo(target)) {
+            throw new IllegalTravelBookingTransitionException(this.status, target);
         }
-        return new TravelBooking(id, businessKey, operatorId, target, createdAt, now, version);
+        return new TravelBooking(this.id, this.businessKey, this.operatorId, target, this.createdAt, now, this.version);
     }
 }

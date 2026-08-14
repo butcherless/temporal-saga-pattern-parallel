@@ -28,8 +28,8 @@ public class TravelBookingProgressionService {
     /** Idempotent by {@code businessKey} (main use case, Idempotency table): a duplicate call returns the existing row unchanged. */
     public Mono<TravelBooking> createBooking(final CreateBookingRequest request) {
         log.debug("createBooking - {}", request);
-        return travelBookingRepository.findByBusinessKey(request.businessKey())
-                .switchIfEmpty(Mono.defer(() -> travelBookingRepository.save(
+        return this.travelBookingRepository.findByBusinessKey(request.businessKey())
+                .switchIfEmpty(Mono.defer(() -> this.travelBookingRepository.save(
                         TravelBooking.create(request.sagaId(), request.businessKey(), request.operatorId(), request.now()))));
     }
 
@@ -40,11 +40,11 @@ public class TravelBookingProgressionService {
      */
     public Mono<TravelBooking> confirmBooking(final ConfirmBookingRequest request) {
         log.debug("confirmBooking - {}", request);
-        return travelBookingRepository.findById(request.sagaId())
+        return this.travelBookingRepository.findById(request.sagaId())
                 .switchIfEmpty(Mono.error(new BookingNotFoundException(request.sagaId())))
                 .flatMap(booking -> booking.status() == TravelBookingStatus.CONFIRMED
                         ? Mono.just(booking)
-                        : travelBookingRepository.save(booking.confirm(request.now())));
+                        : this.travelBookingRepository.save(booking.confirm(request.now())));
     }
 
     /**
@@ -57,7 +57,7 @@ public class TravelBookingProgressionService {
      */
     public Mono<TravelBooking> validateCancellable(final CancelBookingRequest request) {
         log.debug("validateCancellable - {}", request);
-        return travelBookingRepository.findById(request.sagaId())
+        return this.travelBookingRepository.findById(request.sagaId())
                 .switchIfEmpty(Mono.error(new BookingNotFoundException(request.sagaId())))
                 .flatMap(booking -> switch (booking.status()) {
                     case CONFIRMED -> Mono.error(new BookingAlreadyConfirmedException(request.sagaId()));

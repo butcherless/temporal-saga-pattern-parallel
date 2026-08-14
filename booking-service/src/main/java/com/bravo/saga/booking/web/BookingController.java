@@ -61,7 +61,7 @@ public class BookingController {
     public Mono<ResponseEntity<CreateBookingResponseBody>> buyPackage(@RequestBody final CreateBookingRequestBody request) {
         log.debug("buyPackage - {}", request);
 
-        return bookingCreationHandler.createBooking(request)
+        return this.bookingCreationHandler.createBooking(request)
                 .map(outcome -> ResponseEntity.status(outcome.newlyCreated() ? HttpStatus.ACCEPTED : HttpStatus.OK)
                         .body(outcome.body()));
     }
@@ -83,7 +83,7 @@ public class BookingController {
         log.debug("cancelPurchase - sagaId={}, request={}", sagaId, request);
 
         final CancelBookingRequestBody effectiveRequest = request == null ? new CancelBookingRequestBody(null) : request;
-        return bookingCancellationHandler.cancelBooking(sagaId, effectiveRequest)
+        return this.bookingCancellationHandler.cancelBooking(sagaId, effectiveRequest)
                 .map(response -> ResponseEntity.status(response.status() == TravelBookingStatus.CANCELLED ? HttpStatus.OK : HttpStatus.ACCEPTED)
                         .body(response));
     }
@@ -98,7 +98,7 @@ public class BookingController {
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the booking's id") final UUID sagaId) {
         log.debug("confirmBooking - {}", sagaId);
 
-        return travelBookingProgressionService.confirmBooking(new ConfirmBookingRequest(sagaId, Instant.now()))
+        return this.travelBookingProgressionService.confirmBooking(new ConfirmBookingRequest(sagaId, Instant.now()))
                 .map(booking -> ResponseEntity.ok(new BookingStatusResponseBody(booking.id(), booking.status())));
     }
 }

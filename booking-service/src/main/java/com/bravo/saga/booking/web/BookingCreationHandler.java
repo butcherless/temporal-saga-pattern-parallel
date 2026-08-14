@@ -49,10 +49,10 @@ public class BookingCreationHandler {
         final String businessKey = request.hasNoBusinessKey() ? sagaId.toString() : request.businessKey();
         final Instant now = Instant.now();
 
-        return travelBookingProgressionService.createBooking(new CreateBookingRequest(sagaId, businessKey, request.operatorId(), now))
+        return this.travelBookingProgressionService.createBooking(new CreateBookingRequest(sagaId, businessKey, request.operatorId(), now))
                 .flatMap(booking -> {
                     final boolean newlyCreated = booking.id().equals(sagaId);
-                    return startSagaIfNewlyCreated(booking, newlyCreated, request)
+                    return this.startSagaIfNewlyCreated(booking, newlyCreated, request)
                             .thenReturn(new BookingCreationOutcome(
                                     new CreateBookingResponseBody(booking.id(), booking.businessKey(), booking.status()),
                                     newlyCreated));
@@ -73,7 +73,7 @@ public class BookingCreationHandler {
             return Mono.empty();
         }
 
-        final TravelBookingSagaWorkflow workflow = workflowClient.newWorkflowStub(
+        final TravelBookingSagaWorkflow workflow = this.workflowClient.newWorkflowStub(
                 TravelBookingSagaWorkflow.class,
                 WorkflowOptions.newBuilder()
                         .setWorkflowId(booking.businessKey())
@@ -90,7 +90,7 @@ public class BookingCreationHandler {
 
         // WorkflowClient.start is a blocking gRPC call; run it off the WebFlux event loop.
         return Mono.fromRunnable(() -> WorkflowClient.start(workflow::process, input))
-                .subscribeOn(blockingCallScheduler)
+                .subscribeOn(this.blockingCallScheduler)
                 .onErrorResume(WorkflowExecutionAlreadyStarted.class, error -> Mono.empty())
                 .then();
     }

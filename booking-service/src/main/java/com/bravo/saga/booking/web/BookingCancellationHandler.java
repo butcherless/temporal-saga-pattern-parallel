@@ -48,20 +48,20 @@ public class BookingCancellationHandler {
             final CancelBookingRequestBody request) {
         log.debug("cancelBooking - sagaId={}, request={}", sagaId, request);
 
-        return travelBookingProgressionService.validateCancellable(new CancelBookingRequest(sagaId, request.reason()))
+        return this.travelBookingProgressionService.validateCancellable(new CancelBookingRequest(sagaId, request.reason()))
                 .flatMap(booking -> booking.status() == TravelBookingStatus.CANCELLED
                         ? Mono.just(new BookingStatusResponseBody(booking.id(), booking.status()))
-                        : sendCancelSignal(booking.businessKey())
+                        : this.sendCancelSignal(booking.businessKey())
                                 .thenReturn(new BookingStatusResponseBody(booking.id(), booking.status())));
     }
 
     private Mono<Void> sendCancelSignal(final String businessKey) {
-        final WorkflowStub workflowStub = workflowClient.newUntypedWorkflowStub(businessKey);
+        final WorkflowStub workflowStub = this.workflowClient.newUntypedWorkflowStub(businessKey);
 
         // WorkflowStub.signal is a blocking gRPC call; run it off the WebFlux event loop, same
         // bridge pattern as BookingCreationHandler's WorkflowClient.start call.
         return Mono.fromRunnable(() -> workflowStub.signal("cancel"))
-                .subscribeOn(blockingCallScheduler)
+                .subscribeOn(this.blockingCallScheduler)
                 .then();
     }
 }
