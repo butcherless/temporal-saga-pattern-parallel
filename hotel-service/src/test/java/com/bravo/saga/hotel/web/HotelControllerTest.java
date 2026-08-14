@@ -32,7 +32,7 @@ class HotelControllerTest {
 
     @BeforeEach
     void setUp() {
-        this.client = WebTestClient.bindToController(new HotelController(this.hotelReservationProgressionService))
+        this.client = WebTestClient.bindToController(new HotelController(this.hotelReservationProgressionService, 0, 0))
                 .controllerAdvice(new RestExceptionHandler())
                 .build();
     }

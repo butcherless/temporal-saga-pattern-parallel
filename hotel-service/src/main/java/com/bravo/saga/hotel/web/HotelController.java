@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -21,9 +22,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /** REST entry points for the hotel reservation lifecycle, called by the saga Workflow's HotelActivities. */
 @RestController
@@ -33,10 +36,24 @@ import java.util.UUID;
 public class HotelController {
 
     private final HotelReservationProgressionService hotelReservationProgressionService;
+    private final int minSimulatedDelaySeconds;
+    private final int maxSimulatedDelaySeconds;
 
-    public HotelController(final HotelReservationProgressionService hotelReservationProgressionService) {
+    public HotelController(final HotelReservationProgressionService hotelReservationProgressionService,
+            @Value("${hotel-service.simulated-delay.min-seconds:10}") final int minSimulatedDelaySeconds,
+            @Value("${hotel-service.simulated-delay.max-seconds:20}") final int maxSimulatedDelaySeconds) {
         this.hotelReservationProgressionService = Objects.requireNonNull(
                 hotelReservationProgressionService, "hotelReservationProgressionService must not be null");
+        this.minSimulatedDelaySeconds = minSimulatedDelaySeconds;
+        this.maxSimulatedDelaySeconds = maxSimulatedDelaySeconds;
+    }
+
+    private Duration simulatedProcessingDelay() {
+        if (this.maxSimulatedDelaySeconds <= this.minSimulatedDelaySeconds) {
+            return Duration.ofSeconds(this.minSimulatedDelaySeconds);
+        }
+        return Duration.ofSeconds(
+                ThreadLocalRandom.current().nextLong(this.minSimulatedDelaySeconds, this.maxSimulatedDelaySeconds + 1));
     }
 
     @PostMapping
@@ -50,7 +67,8 @@ public class HotelController {
         return this.hotelReservationProgressionService.reserveHotel(
                         new ReserveHotelRequest(request.sagaId(), request.toHotelBookingRequest(), Instant.now()))
                 .map(reservation -> ResponseEntity.status(HttpStatus.CREATED)
-                        .body(new HotelReservationResponseBody(reservation.id(), reservation.status())));
+                        .body(new HotelReservationResponseBody(reservation.id(), reservation.status())))
+                .delayElement(simulatedProcessingDelay());
     }
 
     @PostMapping("/{sagaId}/confirm")
@@ -62,7 +80,8 @@ public class HotelController {
         log.debug("confirmHotel - {}", sagaId);
 
         return this.hotelReservationProgressionService.confirmHotel(new ConfirmHotelRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new HotelReservationResponseBody(reservation.id(), reservation.status())));
+                .map(reservation -> ResponseEntity.ok(new HotelReservationResponseBody(reservation.id(), reservation.status())))
+                .delayElement(simulatedProcessingDelay());
     }
 
     @PostMapping("/{sagaId}/cancel")
@@ -74,6 +93,7 @@ public class HotelController {
         log.debug("cancelHotelReservation - {}", sagaId);
 
         return this.hotelReservationProgressionService.cancelHotelReservation(new CancelHotelReservationRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new HotelReservationResponseBody(reservation.id(), reservation.status())));
+                .map(reservation -> ResponseEntity.ok(new HotelReservationResponseBody(reservation.id(), reservation.status())))
+                .delayElement(simulatedProcessingDelay());
     }
 }

@@ -4,14 +4,9 @@ server:
 spring:
   application:
     name: saga-orchestrator-temporal
-  # Socket-level timeouts for every auto-configured HTTP client (the five business-service
-  # WebClients built in ActivityWebClientConfig) — read-timeout stays comfortably under
-  # TravelBookingSagaWorkflowImpl's own ActivityOptions#setStartToCloseTimeout(10s) so a stalled
-  # response fails at the HTTP client first, with a clearer error than a bare Activity timeout.
-  http:
-    clients:
-      connect-timeout: 2s
-      read-timeout: 5s
+  # Socket-level timeouts for the five business-service WebClients are NOT set here —
+  # spring.http.clients.* only reaches the blocking RestClient in Spring Boot 4.1, never the
+  # reactive WebClient.Builder. See ActivityWebClientConfig#activityWebClientTimeoutCustomizer.
   temporal:
     connection:
       target: ${TEMPORAL_TARGET:localhost:7234}

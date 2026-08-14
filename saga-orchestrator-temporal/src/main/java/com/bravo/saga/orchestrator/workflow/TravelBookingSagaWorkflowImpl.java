@@ -53,7 +53,7 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
      * retry forever) until that item is resolved.
      */
     private static final ActivityOptions ACTIVITY_OPTIONS = ActivityOptions.newBuilder()
-            .setStartToCloseTimeout(Duration.ofSeconds(10))
+            .setStartToCloseTimeout(Duration.ofSeconds(30))
             .build();
 
     private final FlightActivities flightActivities = Workflow.newActivityStub(FlightActivities.class, ACTIVITY_OPTIONS);

@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -21,9 +22,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /** REST entry points for the car reservation lifecycle, called by the saga Workflow's CarActivities. */
 @RestController
@@ -33,10 +36,24 @@ import java.util.UUID;
 public class CarController {
 
     private final CarReservationProgressionService carReservationProgressionService;
+    private final int minSimulatedDelaySeconds;
+    private final int maxSimulatedDelaySeconds;
 
-    public CarController(final CarReservationProgressionService carReservationProgressionService) {
+    public CarController(final CarReservationProgressionService carReservationProgressionService,
+            @Value("${car-service.simulated-delay.min-seconds:10}") final int minSimulatedDelaySeconds,
+            @Value("${car-service.simulated-delay.max-seconds:20}") final int maxSimulatedDelaySeconds) {
         this.carReservationProgressionService = Objects.requireNonNull(
                 carReservationProgressionService, "carReservationProgressionService must not be null");
+        this.minSimulatedDelaySeconds = minSimulatedDelaySeconds;
+        this.maxSimulatedDelaySeconds = maxSimulatedDelaySeconds;
+    }
+
+    private Duration simulatedProcessingDelay() {
+        if (this.maxSimulatedDelaySeconds <= this.minSimulatedDelaySeconds) {
+            return Duration.ofSeconds(this.minSimulatedDelaySeconds);
+        }
+        return Duration.ofSeconds(
+                ThreadLocalRandom.current().nextLong(this.minSimulatedDelaySeconds, this.maxSimulatedDelaySeconds + 1));
     }
 
     @PostMapping
@@ -50,7 +67,8 @@ public class CarController {
         return this.carReservationProgressionService.reserveCar(
                         new ReserveCarRequest(request.sagaId(), request.toCarBookingRequest(), Instant.now()))
                 .map(reservation -> ResponseEntity.status(HttpStatus.CREATED)
-                        .body(new CarReservationResponseBody(reservation.id(), reservation.status())));
+                        .body(new CarReservationResponseBody(reservation.id(), reservation.status())))
+                .delayElement(simulatedProcessingDelay());
     }
 
     @PostMapping("/{sagaId}/confirm")
@@ -62,7 +80,8 @@ public class CarController {
         log.debug("confirmCar - {}", sagaId);
 
         return this.carReservationProgressionService.confirmCar(new ConfirmCarRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new CarReservationResponseBody(reservation.id(), reservation.status())));
+                .map(reservation -> ResponseEntity.ok(new CarReservationResponseBody(reservation.id(), reservation.status())))
+                .delayElement(simulatedProcessingDelay());
     }
 
     @PostMapping("/{sagaId}/cancel")
@@ -74,6 +93,7 @@ public class CarController {
         log.debug("cancelCarReservation - {}", sagaId);
 
         return this.carReservationProgressionService.cancelCarReservation(new CancelCarReservationRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new CarReservationResponseBody(reservation.id(), reservation.status())));
+                .map(reservation -> ResponseEntity.ok(new CarReservationResponseBody(reservation.id(), reservation.status())))
+                .delayElement(simulatedProcessingDelay());
     }
 }

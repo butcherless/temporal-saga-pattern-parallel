@@ -32,7 +32,7 @@ class CarControllerTest {
 
     @BeforeEach
     void setUp() {
-        this.client = WebTestClient.bindToController(new CarController(this.carReservationProgressionService))
+        this.client = WebTestClient.bindToController(new CarController(this.carReservationProgressionService, 0, 0))
                 .controllerAdvice(new RestExceptionHandler())
                 .build();
     }

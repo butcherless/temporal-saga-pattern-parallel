@@ -213,6 +213,26 @@ Docker. `./mvnw verify -pl platform-test` does — it exercises `TravelBookingEn
 exec jars already built (`./mvnw verify -pl booking-service,flight-service,hotel-service,car-service,payment-service,saga-orchestrator-temporal -am`
 first, or a plain `./mvnw verify` from the root covering the whole reactor).
 
+**Building the runnable `-exec.jar` artifact** (e.g. to `java -jar` a service manually, or after
+editing a service's code/config and needing the change to actually take effect): always run
+**`./mvnw clean verify -DskipTests -pl <module>[,<module>...] -am`** — both parts matter:
+
+- **`verify`, not `package`.** The root `pom.xml`'s `spring-boot-maven-plugin` binds its
+  `repackage` execution (with `classifier=exec`) to the `verify` phase, not `package` — this
+  mirrors `temporal-saga-pattern`'s own root pom setup, and is called out in that plugin's own
+  `<executions>` comment. Running `./mvnw package` alone **silently produces no `-exec.jar` at
+  all** (only the plain, non-executable `<module>-<version>.jar` thin jar) — it doesn't fail or
+  warn, so this is easy to miss until `java -jar ..-exec.jar` reports the file doesn't exist.
+- **`clean`.** Without it, a stale `-exec.jar` from a previous build can survive in `target/`
+  even after source/resource edits — confirmed firsthand: a config fix wasn't picked up by a
+  `verify` run without `clean` first, and the jar's packaged `application.yml` still held the old
+  content.
+
+Plain `./mvnw test` needs neither — it recompiles what it needs on its own, and produces no jar.
+This only matters when the goal is a jar meant to actually be run (manually, by `start-all.sh`, or
+by an `e2e-*.sh` script — all of which already invoke `clean verify` internally, so only a manual,
+single-module rebuild needs this spelled out).
+
 ### Local infra (PostgreSQL + Temporal)
 
 ```bash

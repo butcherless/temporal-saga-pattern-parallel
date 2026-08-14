@@ -32,7 +32,7 @@ class FlightControllerTest {
 
     @BeforeEach
     void setUp() {
-        this.client = WebTestClient.bindToController(new FlightController(this.flightReservationProgressionService))
+        this.client = WebTestClient.bindToController(new FlightController(this.flightReservationProgressionService, 0, 0))
                 .controllerAdvice(new RestExceptionHandler())
                 .build();
     }
