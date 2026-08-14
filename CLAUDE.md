@@ -39,7 +39,9 @@ project progresses." Concretely, as of this scaffold:
 - `saga-orchestrator-temporal`'s `TravelBookingSagaWorkflowImpl` — the happy path (use-case-main.md
   steps 1-8) is fully implemented, including E1/E2 compensation (use-case-errors.md) via manual
   per-`Promise` inspection rather than `io.temporal.workflow.Saga` (that class's LIFO stack doesn't
-  fit a parallel fan-out — see that Workflow class's own javadoc).
+  fit a parallel fan-out — see that Workflow class's own javadoc). Unit-tested via
+  `TestWorkflowEnvironment` against a `FakeActivities` recording fake (no real Temporal Server, no
+  HTTP) — the main-case happy path's full step ordering, plus E1/E2 compensation.
 - `flight-service`, `hotel-service`, `car-service` — `domain`/`persistence`/`service` layers
   implemented: a `{Flight,Hotel,Car}Reservation` aggregate (record) + `ReservationStatus`
   (`RESERVED`→`{CONFIRMED, CANCELLED}`, both terminal) + `IllegalReservationTransitionException`,
@@ -73,9 +75,15 @@ project progresses." Concretely, as of this scaffold:
   saga on cancellation yet. Depends on E1/E2/E3 all being resolved with a consistent mechanism first.
 - `platform-test` — pom.xml only, no `*IT.java`. Can't drive a real end-to-end saga until the four
   business services have working REST endpoints.
-- `booking-service`'s own `service`/`domain` layers still have no dedicated unit tests of their own
-  (only `BookingControllerTest`, which mocks the service) — a pre-existing gap from the initial
-  scaffold, not touched by the leg/payment service work above.
+- `booking-service`'s `TravelBookingProgressionService` (`service` layer) is now unit-tested
+  (`TravelBookingProgressionServiceTest`, mocked `TravelBookingRepository`) — `createBooking`/
+  `confirmBooking` are main-case steps 1 and 8. Its `domain` layer (`TravelBooking`,
+  `TravelBookingStatus`) still has no *dedicated* test file of its own — exercised only indirectly,
+  same minimalism as every other service's domain layer in this repo (see below).
+- No service in this repo has dedicated `domain`-layer unit tests (`TravelBooking`,
+  `{Flight,Hotel,Car}Reservation`, `PaymentHold`, and their `*Status` enums) — each is exercised
+  only indirectly through its service-layer test. A deliberate, consistent choice given how thin
+  the transition-graph logic is, not an oversight; revisit if that logic grows less trivial.
 
 ## Conventions
 
