@@ -185,8 +185,9 @@ the Local infra port offsets below.
 
 Same Java 25 toolchain (`.sdkmanrc`), `./mvnw` wrapper, and static-analysis commands as
 `temporal-saga-pattern` — see that repo's `CLAUDE.md` for the exact invocations (`final`-convention
-OpenRewrite recipe, the one-param-per-line custom recipe module). `./mvnw clean verify` doesn't need
-Docker yet — there's no Testcontainers-backed IT until `platform-test` gets one.
+OpenRewrite recipe, `org.openrewrite.staticanalysis.ExplicitThis` for explicit `this.` qualification,
+the one-param-per-line custom recipe module). `./mvnw clean verify` doesn't need Docker yet — there's
+no Testcontainers-backed IT until `platform-test` gets one.
 
 ### Local infra (PostgreSQL + Temporal)
 
