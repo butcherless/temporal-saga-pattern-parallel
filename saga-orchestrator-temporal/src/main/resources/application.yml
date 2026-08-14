@@ -4,14 +4,39 @@ server:
 spring:
   application:
     name: saga-orchestrator-temporal
+  # Socket-level timeouts for every auto-configured HTTP client (the five business-service
+  # WebClients built in ActivityWebClientConfig) — read-timeout stays comfortably under
+  # TravelBookingSagaWorkflowImpl's own ActivityOptions#setStartToCloseTimeout(10s) so a stalled
+  # response fails at the HTTP client first, with a clearer error than a bare Activity timeout.
+  http:
+    clients:
+      connect-timeout: 2s
+      read-timeout: 5s
   temporal:
     connection:
       target: ${TEMPORAL_TARGET:localhost:7234}
-    # No `workers:` block yet — unlike temporal-saga-pattern's equivalent config, there are no
-    # @Component-annotated Activity implementations to bind to yet (flight/hotel/car/payment-service
-    # REST contracts aren't designed yet — see this module's pom.xml description and CLAUDE.md).
-    # TravelBookingSagaWorkflowImpl itself is complete for the happy path and unit-testable via
-    # temporal-testing without a registered Worker.
+    workers:
+      - task-queue: travel-booking-saga-task-queue
+        workflow-classes:
+          - com.bravo.saga.orchestrator.workflow.TravelBookingSagaWorkflowImpl
+        activity-beans:
+          - flightActivitiesImpl
+          - hotelActivitiesImpl
+          - carActivitiesImpl
+          - paymentActivitiesImpl
+          - bookingActivitiesImpl
+
+services:
+  flight:
+    base-url: ${FLIGHT_SERVICE_URL:http://localhost:8092}
+  hotel:
+    base-url: ${HOTEL_SERVICE_URL:http://localhost:8093}
+  car:
+    base-url: ${CAR_SERVICE_URL:http://localhost:8094}
+  payment:
+    base-url: ${PAYMENT_SERVICE_URL:http://localhost:8095}
+  booking:
+    base-url: ${BOOKING_SERVICE_URL:http://localhost:8091}
 
 ---
 spring:

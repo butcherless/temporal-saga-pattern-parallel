@@ -25,7 +25,9 @@ file only covers what you need to operate/build it day to day, and what's implem
 
 This repo was scaffolded in one pass from `temporal-saga-pattern`'s structure/tech stack/code style,
 per that repo's own precedent of "fix the structure well enough to be mechanical, then refine as the
-project progresses." Concretely, as of this scaffold:
+project progresses." The main use case (use-case-main.md, steps 1-8) is now fully implemented and
+verified end-to-end — every layer of every service reads and writes real data in its own Postgres
+database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
 
 **Implemented:**
 - `saga-common` — fully implemented: `error/` (carried over unchanged from `temporal-saga-pattern`,
@@ -34,56 +36,76 @@ project progresses." Concretely, as of this scaffold:
 - `booking-service` — fully implemented per `docs/travel-booking/controller-layer-plan.md`: `POST
   /travel-bookings` (buy, starts the saga Workflow) and `POST /travel-bookings/{sagaId}/cancel`
   (signals it), plus a third, internal-only `POST /travel-bookings/{sagaId}/confirm` (called by the
-  orchestrator's `BookingActivities`, added here because the happy path needs it — not part of the
-  controller-layer plan's original 2-operation scope, worth folding back into that doc later).
-- `saga-orchestrator-temporal`'s `TravelBookingSagaWorkflowImpl` — the happy path (use-case-main.md
-  steps 1-8) is fully implemented, including E1/E2 compensation (use-case-errors.md) via manual
-  per-`Promise` inspection rather than `io.temporal.workflow.Saga` (that class's LIFO stack doesn't
-  fit a parallel fan-out — see that Workflow class's own javadoc). Unit-tested via
-  `TestWorkflowEnvironment` against a `FakeActivities` recording fake (no real Temporal Server, no
-  HTTP) — the main-case happy path's full step ordering, plus E1/E2 compensation.
-- `flight-service`, `hotel-service`, `car-service` — `domain`/`persistence`/`service` layers
-  implemented: a `{Flight,Hotel,Car}Reservation` aggregate (record) + `ReservationStatus`
+  orchestrator's `BookingActivities`, added here because the happy path needs it — outside that
+  doc's original 2-operation scope, worth folding back into it later).
+- `flight-service`, `hotel-service`, `car-service` — `domain`/`persistence`/`service` layers: a
+  `{Flight,Hotel,Car}Reservation` aggregate (record) + `ReservationStatus`
   (`RESERVED`→`{CONFIRMED, CANCELLED}`, both terminal) + `IllegalReservationTransitionException`,
   a bare `ReactiveCrudRepository`, and a `*ReservationProgressionService` with
   reserve/confirm/cancel — idempotent by `sagaId`, same shape as `booking-service`'s
   `TravelBookingProgressionService`. Each has a V1 Flyway migration. Unit-tested against a mocked
   repository (Mockito + `StepVerifier`) — 10 tests per service, covering idempotency, the
   not-found path, and both illegal-transition cases (confirming a cancelled reservation, cancelling
-  a confirmed one).
+  a confirmed one). Each now also has a `web` layer: `*Controller` (`POST /{leg}-reservations`,
+  `/{sagaId}/confirm`, `/{sagaId}/cancel`), `Reserve*RequestBody`/`*ReservationResponseBody`,
+  `*WebConfig`, and a `RestExceptionHandler` mapping `IllegalStateException` (the not-found signal
+  `loadReservation` already threw — pinned by the existing service-layer tests, not a new type) to
+  404 and `IllegalReservationTransitionException` to 409. Their REST contracts weren't written up as
+  a standalone plan doc the way `booking-service`'s was (`controller-layer-plan.md`); they're
+  self-documented via OpenAPI annotations and each controller's own javadoc instead — worth writing
+  up formally later if these contracts grow past what the code says on its own. Unit-tested via
+  `WebTestClient` bound to the controller with a mocked progression service, same pattern as
+  `booking-service`'s own `BookingControllerTest`.
 - `payment-service` — same shape, adapted to hold/capture/release: `PaymentHold` aggregate +
   `PaymentHoldStatus` (`HELD`→`{CAPTURED, RELEASED}`, both terminal — capturing then releasing is
   correctly rejected, since undoing a capture is a refund, not a release, per
   business-definitions.md §3) + `IllegalPaymentHoldTransitionException`,
   `PaymentHoldRepository`, `PaymentHoldProgressionService`. No amount field anywhere — same "no
-  price computation" rule as everywhere else in this saga.
-- No web/REST layer yet on any of the four business services (see below).
+  price computation" rule as everywhere else in this saga. `web` layer: `PaymentController` (`POST
+  /payment-holds`, `/{sagaId}/capture`, `/{sagaId}/release`), same DTO/config/exception-handler
+  shape as the three reservation services above (`IllegalPaymentHoldTransitionException` → 409).
+- `saga-orchestrator-temporal` — `TravelBookingSagaWorkflowImpl` implements the happy path
+  (use-case-main.md steps 1-8), including E1/E2 compensation (use-case-errors.md) via manual
+  per-`Promise` inspection rather than `io.temporal.workflow.Saga` (that class's LIFO stack doesn't
+  fit a parallel fan-out — see that Workflow class's own javadoc). Its five Activity
+  **implementations** (`FlightActivitiesImpl`/`HotelActivitiesImpl`/`CarActivitiesImpl`/
+  `PaymentActivitiesImpl`/`BookingActivitiesImpl`) are plain `@Slf4j`/`@Component` beans, each
+  making one blocking `WebClient` call per method into the matching business service's `web` layer
+  above — no retry/non-retryable-failure classification yet (see Open item below). `config/`
+  (`ServicesProperties`, `ActivityWebClientConfig` — one named `WebClient` bean per business
+  service — and `VirtualThreadWorkerOptionsCustomizer`) mirrors `temporal-saga-pattern`'s own
+  classes of these names. `application.yml`'s `spring.temporal.workers` block registers
+  `TravelBookingSagaWorkflowImpl` and all five Activity beans on `travel-booking-saga-task-queue`.
+  Unit-tested: the Workflow via `TestWorkflowEnvironment`/`FakeActivities` (no real Temporal Server,
+  no HTTP), and each `*ActivitiesImpl` via a Mockito-stubbed `ExchangeFunction`
+  (`ExchangeFunctionStub`, asserting the method/path posted to) — same two-tier pattern as
+  `temporal-saga-pattern`'s own orchestrator tests.
+- `platform-test` — `TravelBookingEndToEndSagaIT`: boots all six services as real forked `java -jar`
+  exec-jar processes against a Testcontainers Postgres (all five databases, `max_connections=300` —
+  same fix as Local infra's `docker-compose.yml` below, needed for the same reason) and a
+  `temporalio/temporal` dev-server container, drives one full saga over real HTTP via `POST
+  /travel-bookings`, and asserts both the Workflow Execution's own outcome and the row each service
+  actually persisted in its own database (`travel_booking.status = CONFIRMED`, all three
+  `*_reservation.status = CONFIRMED`, `payment_hold.status = CAPTURED`) — plus one
+  idempotent-duplicate-`businessKey` scenario. Same structure as `temporal-saga-pattern`'s own
+  `TemporalEndToEndSagaIT`.
 
-**Scaffolded, not yet implemented:**
-- `flight-service`, `hotel-service`, `car-service`, `payment-service` — no `web` layer. Their REST
-  contracts (reserve/confirm, hold/capture) haven't been designed yet the way `booking-service`'s
-  was in `controller-layer-plan.md`; that's the natural next doc to write, and is why
-  `saga-orchestrator-temporal`'s Activity implementations (below) still can't exist either.
-- `saga-orchestrator-temporal`'s Activity **implementations** (the `FlightActivities`/
-  `HotelActivities`/`CarActivities`/`PaymentActivities` interfaces exist and are used by
-  `TravelBookingSagaWorkflowImpl`; their `WebClient`-based `*Impl` classes don't exist yet, since
-  they'd call REST endpoints that don't exist yet on the four services above). No
-  `spring.temporal.workers` block in that module's `application.yml` either, for the same reason —
-  there's nothing to register as an Activity bean yet.
+**Open items (not blockers, but worth revisiting):**
 - `TravelBookingSagaWorkflow#cancel()` — the signal exists and `booking-service` sends it, but
   `TravelBookingSagaWorkflowImpl` receives it into an unread field; nothing compensates an in-flight
   saga on cancellation yet. Depends on E1/E2/E3 all being resolved with a consistent mechanism first.
-- `platform-test` — pom.xml only, no `*IT.java`. Can't drive a real end-to-end saga until the four
-  business services have working REST endpoints.
-- `booking-service`'s `TravelBookingProgressionService` (`service` layer) is now unit-tested
-  (`TravelBookingProgressionServiceTest`, mocked `TravelBookingRepository`) — `createBooking`/
-  `confirmBooking` are main-case steps 1 and 8. Its `domain` layer (`TravelBooking`,
-  `TravelBookingStatus`) still has no *dedicated* test file of its own — exercised only indirectly,
-  same minimalism as every other service's domain layer in this repo (see below).
-- No service in this repo has dedicated `domain`-layer unit tests (`TravelBooking`,
-  `{Flight,Hotel,Car}Reservation`, `PaymentHold`, and their `*Status` enums) — each is exercised
-  only indirectly through its service-layer test. A deliberate, consistent choice given how thin
-  the transition-graph logic is, not an oversight; revisit if that logic grows less trivial.
+- No retry/non-retryable-failure classification in the five `*ActivitiesImpl` classes yet (unlike
+  `temporal-saga-pattern`'s own, which map a 422 business rejection to a non-retryable
+  `ApplicationFailure`) — this repo's leg/payment services signal illegal transitions as 409, not
+  422, and per-step timeout/retry policy is still an open item in use-case-errors.md; revisit once
+  that's resolved.
+- `booking-service`'s `TravelBookingProgressionService` (`service` layer) is unit-tested
+  (`TravelBookingProgressionServiceTest`, mocked `TravelBookingRepository`) covering `createBooking`/
+  `confirmBooking` (main-case steps 1 and 8), but — like every service in this repo — has no
+  dedicated `domain`-layer unit tests (`TravelBooking`, `{Flight,Hotel,Car}Reservation`,
+  `PaymentHold`, and their `*Status` enums); each is exercised only indirectly through its
+  service-layer test. A deliberate, consistent choice given how thin the transition-graph logic is,
+  not an oversight; revisit if that logic grows less trivial.
 
 ## Conventions
 
@@ -97,15 +119,14 @@ for the full rationale behind each.
 ### Logging
 
 `temporal-saga-pattern`'s own `CLAUDE.md` only states "Lombok-only logging" (`@Slf4j`, never a
-hand-declared `Logger` field) — everything else about its logging is an unwritten pattern, not a
-documented rule, even there (confirmed by inspecting its actual source: no javadoc, no `docs/`
-entry states it). This project codifies that pattern explicitly instead of leaving it to be
-re-derived by reading code:
+hand-declared `Logger` field) — everything else about its logging is an unwritten pattern, confirmed
+by inspecting its source (no javadoc, no `docs/` entry states it). This project codifies that
+pattern explicitly instead of leaving it to be re-derived by reading code:
 
 Every public method with real implementation code in the `service`, `web`, and `persistence`
-layers must open with a `log.debug(...)` call as its first statement — before any other logic —
-naming the method and its input, via SLF4J's `{}` placeholders (never string concatenation or
-manual `+`). One parameter: `log.debug("methodName - {}", param)`. Multiple parameters: name each,
+layers must open with a `log.debug(...)` call as its first statement, naming the method and its
+input via SLF4J's `{}` placeholders (never string concatenation or manual `+`). One parameter:
+`log.debug("methodName - {}", param)`. Multiple parameters: name each,
 `log.debug("methodName - param1={}, param2={}", param1, param2)`. "`persistence` with implementation
 code" excludes bare Spring Data repository interfaces with no method bodies (there's nothing to log
 in a declaration) — it only applies once a repository/DAO gets a hand-written method.
@@ -117,14 +138,14 @@ on startup.
 
 The Temporal Workflow implementation (`TravelBookingSagaWorkflowImpl`) is logged too, following the
 same "first statement, `DEBUG`, method name + input, `{}` placeholders" rule — but it's the other
-exception to "Lombok-only logging," and deliberately so: a plain `@Slf4j` logger would re-emit every
+exception to "Lombok-only logging," deliberately: a plain `@Slf4j` logger would re-emit every
 line on every deterministic replay (Workflow methods re-execute from the top as Temporal replays
 history). It must instead declare `private static final Logger log =
 Workflow.getLogger(TravelBookingSagaWorkflowImpl.class)` — `io.temporal.workflow.Workflow`'s own
 replay-aware logger, which suppresses the replay-time duplicates and only actually logs on the real
-execution. Activity implementations (`saga-orchestrator-temporal`'s `activities/*ActivitiesImpl`,
-once they exist) are plain Spring beans making blocking HTTP calls, not Workflow code subject to
-replay — they use ordinary `@Slf4j`, same as `service`/`web`/`persistence`.
+execution. Activity implementations (`saga-orchestrator-temporal`'s `activities/*ActivitiesImpl`)
+are plain Spring beans making blocking HTTP calls, not Workflow code subject to replay — they use
+ordinary `@Slf4j`, same as `service`/`web`/`persistence`.
 
 ### String null-or-blank checks
 
@@ -161,12 +182,12 @@ booking-specific). Host port *numbers* are deliberately not identical — see Lo
 - `booking-service` — `domain`/`persistence`/`service`/`web`; starts and signals the Workflow, and
   is called back by it to confirm.
 - `flight-service`, `hotel-service`, `car-service`, `payment-service` — `domain`/`persistence`/
-  `service` implemented; no `web` yet (see above).
-- `saga-orchestrator-temporal` — `workflow/TravelBookingSagaWorkflowImpl` (implemented) +
-  `activities/` (five `@ActivityInterface`s, implemented; `*Impl` classes not yet) +
-  `config/` (not yet — `ActivityWebClientConfig`/`VirtualThreadWorkerOptionsCustomizer` equivalents
-  wait on the leg/payment services' `web` layers existing).
-- `platform-test` — pom.xml only for now.
+  `service`/`web`, same layout as `booking-service` (see Current state above).
+- `saga-orchestrator-temporal` — `workflow/TravelBookingSagaWorkflowImpl`, `activities/` (five
+  `@ActivityInterface`s plus their `WebClient`-based `*Impl` classes), `config/`
+  (`ServicesProperties`/`ActivityWebClientConfig`/`VirtualThreadWorkerOptionsCustomizer`) — see
+  Current state above.
+- `platform-test` — `TravelBookingEndToEndSagaIT` (see Current state above).
 
 Ports are offset by +10 from `temporal-saga-pattern`'s equivalent range (`8080`-`8083`), same
 "can't collide if both projects' services ever run side by side on bare `localhost`" reasoning as
@@ -186,8 +207,11 @@ the Local infra port offsets below.
 Same Java 25 toolchain (`.sdkmanrc`), `./mvnw` wrapper, and static-analysis commands as
 `temporal-saga-pattern` — see that repo's `CLAUDE.md` for the exact invocations (`final`-convention
 OpenRewrite recipe, `org.openrewrite.staticanalysis.ExplicitThis` for explicit `this.` qualification,
-the one-param-per-line custom recipe module). `./mvnw clean verify` doesn't need Docker yet — there's
-no Testcontainers-backed IT until `platform-test` gets one.
+the one-param-per-line custom recipe module). `./mvnw test` (all modules' unit tests) doesn't need
+Docker. `./mvnw verify -pl platform-test` does — it exercises `TravelBookingEndToEndSagaIT`
+(Testcontainers Postgres + a Temporal dev-server container), and needs the six service modules'
+exec jars already built (`./mvnw verify -pl booking-service,flight-service,hotel-service,car-service,payment-service,saga-orchestrator-temporal -am`
+first, or a plain `./mvnw verify` from the root covering the whole reactor).
 
 ### Local infra (PostgreSQL + Temporal)
 
@@ -205,26 +229,34 @@ allocated"). Same username (`saga`) as `temporal-saga-pattern`, but password `pa
 `saga`, and container-naming pattern renamed `saga-parallel-*` — same "can't be confused for each
 other" reasoning. PostgreSQL hosts `booking_db`/`flight_db`/`hotel_db`/`car_db`/`payment_db`.
 
-### Running `booking-service` locally
+### Running the full stack locally
 
-The only business service with anything to run right now:
+All six services are runnable now. With Local infra (above) up:
 
 ```bash
 ./mvnw install -pl saga-common -DskipTests -q
-./mvnw spring-boot:run -pl booking-service
+./mvnw spring-boot:run -pl booking-service      # &, or one terminal per service
+./mvnw spring-boot:run -pl flight-service
+./mvnw spring-boot:run -pl hotel-service
+./mvnw spring-boot:run -pl car-service
+./mvnw spring-boot:run -pl payment-service
+./mvnw spring-boot:run -pl saga-orchestrator-temporal
 ```
 
-Needs `TEMPORAL_TARGET` (defaults to `localhost:7234`, matching Local infra above) and the same `DB_*` env vars pattern as
-`temporal-saga-pattern`'s services. `saga-orchestrator-temporal` can also be started
-(`./mvnw spring-boot:run -pl saga-orchestrator-temporal`) and will connect, but has no Worker
-registered yet (see Current state, above), so it won't pick up any Workflow Tasks — a booking created
-via `booking-service` will start a Workflow Execution that then sits unprocessed until a Worker
-exists to run it.
+`booking-service` and `saga-orchestrator-temporal` need `TEMPORAL_TARGET` (defaults to
+`localhost:7234`, matching Local infra above); every business service needs the same `DB_*` env
+vars pattern as `temporal-saga-pattern`'s services. `saga-orchestrator-temporal` defaults its five
+`services.*.base-url` entries to each service's Local infra port (see the port table above) via
+`FLIGHT_SERVICE_URL`/`HOTEL_SERVICE_URL`/`CAR_SERVICE_URL`/`PAYMENT_SERVICE_URL`/`BOOKING_SERVICE_URL`
+— override only if running a service on a non-default port. With all six up, `POST
+/travel-bookings` on `booking-service` (port 8091) drives a real saga end to end; `platform-test`'s
+`TravelBookingEndToEndSagaIT` (Current state, above) automates the same flow against a disposable
+Testcontainers environment instead of this manually-started one.
 
 ## Explicitly deferred
 
-Everything listed under "Scaffolded, not yet implemented" above, plus (mirroring
-`temporal-saga-pattern`'s own `CLAUDE.md` structure):
+Everything listed under "Open items" above, plus (mirroring `temporal-saga-pattern`'s own
+`CLAUDE.md` structure):
 
 - A shared library between this repo and `temporal-saga-pattern` — same "not yet" as that repo's own
   relationship to `saga-pattern-poc`.
