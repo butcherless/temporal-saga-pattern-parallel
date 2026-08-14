@@ -1,0 +1,40 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: saga-orchestrator-temporal
+  temporal:
+    connection:
+      target: ${TEMPORAL_TARGET:localhost:7234}
+    # No `workers:` block yet — unlike temporal-saga-pattern's equivalent config, there are no
+    # @Component-annotated Activity implementations to bind to yet (flight/hotel/car/payment-service
+    # REST contracts aren't designed yet — see this module's pom.xml description and CLAUDE.md).
+    # TravelBookingSagaWorkflowImpl itself is complete for the happy path and unit-testable via
+    # temporal-testing without a registered Worker.
+
+---
+spring:
+  config:
+    activate:
+      on-profile: '!local'
+
+logging:
+  structured:
+    format:
+      console: ecs
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+logging:
+  level:
+    com.bravo.saga: DEBUG
+  file:
+    name: /tmp/saga-orchestrator-temporal.log
+  logback:
+    rollingpolicy:
+      clean-history-on-start: true

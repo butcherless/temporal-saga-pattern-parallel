@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.bravo.saga</groupId>
+        <artifactId>distributed-saga-platform-temporal-parallel</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>saga-orchestrator-temporal</artifactId>
+    <packaging>jar</packaging>
+
+    <name>saga-orchestrator-temporal</name>
+    <description>Temporal Worker hosting the travel-booking saga Workflow and its Activities; owns no database of its own.
+        Activity implementations (WebClient calls into flight/hotel/car/payment-service) and worker registration are not
+        wired up yet — those services' REST contracts aren't designed yet either. See CLAUDE.md.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.bravo.saga</groupId>
+            <artifactId>saga-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- A reactive server, kept only so /actuator/health is reachable the same way as every
+             other service — this module has no @RestController of its own. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <!-- WebClient (Activities call the business services' REST endpoints), auto-configured;
+             not yet used by any Activity implementation — see this module's own description above. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webclient</artifactId>
+        </dependency>
+
+        <!-- Registers the Worker (WorkflowClient + WorkerFactory) from spring.temporal.* config
+             once that's wired up; the only service in the platform that registers a Worker. -->
+        <dependency>
+            <groupId>io.temporal</groupId>
+            <artifactId>temporal-spring-boot-starter</artifactId>
+            <version>${temporal.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- In-memory Temporal test server + time-skipping, for unit-testing
+             TravelBookingSagaWorkflowImpl against fake Activities without a real Temporal Server. -->
+        <dependency>
+            <groupId>io.temporal</groupId>
+            <artifactId>temporal-testing</artifactId>
+            <version>${temporal.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

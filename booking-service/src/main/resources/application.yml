@@ -1,0 +1,52 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: booking-service
+  webflux:
+    problemdetails:
+      enabled: true
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/booking_db
+    username: ${DB_USERNAME:saga}
+    password: ${DB_PASSWORD:parallel}
+  # JDBC datasource used only by Flyway and by DataSourceAutoConfiguration's primary
+  # DataSource bean (re-imported in the application class); the app itself talks to
+  # PostgreSQL reactively via spring.r2dbc above.
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/booking_db
+    username: ${DB_USERNAME:saga}
+    password: ${DB_PASSWORD:parallel}
+  temporal:
+    connection:
+      target: ${TEMPORAL_TARGET:localhost:7234}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: '!local'
+
+# Structured (ECS) console logging outside local dev, via Spring Boot 4.1's built-in
+# logging.structured.format.* support — same convention as every service in temporal-saga-pattern.
+logging:
+  structured:
+    format:
+      console: ecs
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+# DEBUG for this app's own code only (not Spring/Temporal/R2DBC/etc).
+logging:
+  level:
+    com.bravo.saga: DEBUG
+  file:
+    name: /tmp/booking-service.log
+  logback:
+    rollingpolicy:
+      clean-history-on-start: true
