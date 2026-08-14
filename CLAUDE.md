@@ -231,7 +231,26 @@ other" reasoning. PostgreSQL hosts `booking_db`/`flight_db`/`hotel_db`/`car_db`/
 
 ### Running the full stack locally
 
-All six services are runnable now. With Local infra (above) up:
+All six services are runnable now, two ways:
+
+**Scripted (preferred)** — `platform-test/scripts/start-all.sh` rebuilds all seven module jars,
+recreates Postgres/Temporal from a clean slate (`docker compose down -v` first, so it never
+inherits state from a previous run), starts the five business services then the Temporal Worker
+last, and leaves everything running in the foreground until Ctrl-C (which stops the six service
+processes; the Docker containers keep running — `docker compose down` separately, or run
+`platform-test/scripts/stop-all.sh` from another shell to stop both). Same underlying
+`lib/e2e-common.sh` the `e2e-*.sh` scenario scripts below use, so this is the same environment
+those tests run against, just left up for manual `curl`/Temporal-Web-UI/pgAdmin/debugger use.
+
+**Startup log check**: right after each service reports `/actuator/health` `UP`, both
+`start-all.sh` and every `e2e-*.sh` scenario grep its `target/e2e-logs/<scenario>/<module>.log` for
+an `] ERROR ` logback line and abort the whole run if one is found (`check_service_log_for_startup_errors`
+in `lib/e2e-common.sh`) — `UP` alone doesn't prove a clean start, since a bean-initialization
+problem can log an error without stopping the app context. Apply the same check by hand
+(`grep '] ERROR ' <logfile>`) whenever starting services manually instead (below), or via
+`spring-boot:run`, where nothing automates it.
+
+**Manual**, one terminal per service, with Local infra (above) up:
 
 ```bash
 ./mvnw install -pl saga-common -DskipTests -q
@@ -248,10 +267,20 @@ All six services are runnable now. With Local infra (above) up:
 vars pattern as `temporal-saga-pattern`'s services. `saga-orchestrator-temporal` defaults its five
 `services.*.base-url` entries to each service's Local infra port (see the port table above) via
 `FLIGHT_SERVICE_URL`/`HOTEL_SERVICE_URL`/`CAR_SERVICE_URL`/`PAYMENT_SERVICE_URL`/`BOOKING_SERVICE_URL`
-— override only if running a service on a non-default port. With all six up, `POST
-/travel-bookings` on `booking-service` (port 8091) drives a real saga end to end; `platform-test`'s
-`TravelBookingEndToEndSagaIT` (Current state, above) automates the same flow against a disposable
-Testcontainers environment instead of this manually-started one.
+— override only if running a service on a non-default port.
+
+With all six up (either way), `POST /travel-bookings` on `booking-service` (port 8091) drives a
+real saga end to end. Two automated e2e suites do the same thing without manual `curl`:
+`platform-test`'s `TravelBookingEndToEndSagaIT` (Current state, above; JUnit + Testcontainers, no
+Docker Compose needed) and `platform-test/scripts/e2e-happy-path.sh` (plain bash + `curl` against
+the real `docker-compose.yml` stack, `bootstrap_environment` + `post_travel_booking` +
+`wait_booking_status` from `lib/e2e-common.sh`, then asserts every leg's reservation status and the
+payment hold's status directly via `psql`) — mirrors `temporal-saga-pattern`'s own
+`e2e-happy-path.sh`. Unlike that sibling suite, there's only one `e2e-*.sh` scenario here: its
+temporary/permanent-fault scripts rely on fake-failure injection built into `inventory-service`/
+`payment-service` (SKU/amount markers that trigger a simulated timeout or rejection) that this
+repo's real, non-simulated business services don't have — every scenario this suite can currently
+drive is a variant of the happy path.
 
 ## Explicitly deferred
 
