@@ -107,6 +107,51 @@ class TravelBookingSagaWorkflowImplTest {
     }
 
     /**
+     * E1, failure on the first leg: {@code reserveFlight} fails while hotel and car succeed. The
+     * failed leg has nothing to cancel; the two survivors must both be cancelled and payment must
+     * never be touched. (Complements {@link #processCompensatesTheSucceededLegsWhenOneReservationFailsPermanently},
+     * where the failing leg is hotel — this one drives the flight branch of the per-leg inspection.)
+     */
+    @Test
+    void processCompensatesHotelAndCarWhenTheFlightReservationFailsPermanently() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBookingSagaInput input = defaultInput(sagaId);
+
+        final TravelBookingSagaWorkflow workflow = this.newWorkflowStub(FakeActivities.builder(this.callLog).failReserveFlightPermanently().build());
+
+        assertThatThrownBy(() -> workflow.process(input)).isInstanceOf(WorkflowFailedException.class);
+
+        assertThat(this.callLog).containsExactlyInAnyOrder(
+                "reserveFlight(%s)".formatted(sagaId),
+                "reserveHotel(%s)".formatted(sagaId),
+                "reserveCar(%s)".formatted(sagaId),
+                "cancelHotelReservation(%s)".formatted(sagaId),
+                "cancelCarReservation(%s)".formatted(sagaId));
+    }
+
+    /**
+     * E1, two legs failing: flight and car both fail, only hotel succeeds. The lone survivor
+     * (hotel) is the only leg cancelled, and the Workflow still fails. Drives the "a later leg
+     * also failed but {@code firstFailure} is already set" branch of the per-leg inspection.
+     */
+    @Test
+    void processCancelsOnlyTheLoneSurvivorWhenTwoReservationsFailPermanently() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBookingSagaInput input = defaultInput(sagaId);
+
+        final TravelBookingSagaWorkflow workflow = this.newWorkflowStub(
+                FakeActivities.builder(this.callLog).failReserveFlightPermanently().failReserveCarPermanently().build());
+
+        assertThatThrownBy(() -> workflow.process(input)).isInstanceOf(WorkflowFailedException.class);
+
+        assertThat(this.callLog).containsExactlyInAnyOrder(
+                "reserveFlight(%s)".formatted(sagaId),
+                "reserveHotel(%s)".formatted(sagaId),
+                "reserveCar(%s)".formatted(sagaId),
+                "cancelHotelReservation(%s)".formatted(sagaId));
+    }
+
+    /**
      * E2 (use-case-errors.md): all three reservations succeed, but the payment hold itself fails
      * permanently — all three already-succeeded legs must be cancelled.
      */
@@ -167,12 +212,16 @@ class TravelBookingSagaWorkflowImplTest {
     private static final class FakeActivities implements FlightActivities, HotelActivities, CarActivities, PaymentActivities, BookingActivities {
 
         private final List<String> callLog;
+        private final boolean reserveFlightFailsPermanently;
         private final boolean reserveHotelFailsPermanently;
+        private final boolean reserveCarFailsPermanently;
         private final boolean holdPaymentFailsPermanently;
 
         private FakeActivities(final Builder builder) {
             this.callLog = builder.callLog;
+            this.reserveFlightFailsPermanently = builder.reserveFlightFailsPermanently;
             this.reserveHotelFailsPermanently = builder.reserveHotelFailsPermanently;
+            this.reserveCarFailsPermanently = builder.reserveCarFailsPermanently;
             this.holdPaymentFailsPermanently = builder.holdPaymentFailsPermanently;
         }
 
@@ -184,6 +233,9 @@ class TravelBookingSagaWorkflowImplTest {
         public void reserveFlight(final UUID sagaId,
                 final FlightBookingRequest flightBooking) {
             this.callLog.add("reserveFlight(%s)".formatted(sagaId));
+            if (this.reserveFlightFailsPermanently) {
+                throw ApplicationFailure.newNonRetryableFailure("Simulated permanent flight reservation failure", "PermanentSagaException");
+            }
         }
 
         @Override
@@ -219,6 +271,9 @@ class TravelBookingSagaWorkflowImplTest {
         public void reserveCar(final UUID sagaId,
                 final CarBookingRequest carBooking) {
             this.callLog.add("reserveCar(%s)".formatted(sagaId));
+            if (this.reserveCarFailsPermanently) {
+                throw ApplicationFailure.newNonRetryableFailure("Simulated permanent car reservation failure", "PermanentSagaException");
+            }
         }
 
         @Override
@@ -257,15 +312,27 @@ class TravelBookingSagaWorkflowImplTest {
 
         private static final class Builder {
             private final List<String> callLog;
+            private boolean reserveFlightFailsPermanently;
             private boolean reserveHotelFailsPermanently;
+            private boolean reserveCarFailsPermanently;
             private boolean holdPaymentFailsPermanently;
 
             private Builder(final List<String> callLog) {
                 this.callLog = callLog;
             }
 
+            Builder failReserveFlightPermanently() {
+                this.reserveFlightFailsPermanently = true;
+                return this;
+            }
+
             Builder failReserveHotelPermanently() {
                 this.reserveHotelFailsPermanently = true;
+                return this;
+            }
+
+            Builder failReserveCarPermanently() {
+                this.reserveCarFailsPermanently = true;
                 return this;
             }
 
