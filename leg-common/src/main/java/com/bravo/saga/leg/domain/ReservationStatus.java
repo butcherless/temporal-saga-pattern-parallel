@@ -1,4 +1,4 @@
-package com.bravo.saga.hotel.domain;
+package com.bravo.saga.leg.domain;
 
 import java.util.Collections;
 import java.util.EnumMap;
@@ -7,9 +7,12 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * A hotel reservation's own functional state machine — docs/travel-booking/use-case-main.md
+ * A reservation leg's own functional state machine — docs/travel-booking/use-case-main.md
  * steps 2/5, and business-definitions.md §3 (Reservation/Confirmation). {@code CONFIRMED} is
  * terminal: once payment is captured and the leg confirmed, there is no automatic reversal.
+ *
+ * <p>Shared verbatim by flight-service, hotel-service, and car-service — the three legs have
+ * the same lifecycle.
  */
 public enum ReservationStatus {
 

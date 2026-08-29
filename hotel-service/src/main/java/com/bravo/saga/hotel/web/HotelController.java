@@ -1,9 +1,9 @@
 package com.bravo.saga.hotel.web;
 
-import com.bravo.saga.hotel.service.CancelHotelReservationRequest;
-import com.bravo.saga.hotel.service.ConfirmHotelRequest;
 import com.bravo.saga.hotel.service.HotelReservationProgressionService;
 import com.bravo.saga.hotel.service.ReserveHotelRequest;
+import com.bravo.saga.leg.service.SagaStepRequest;
+import com.bravo.saga.leg.web.ReservationResponseBody;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -61,13 +61,13 @@ public class HotelController {
     @ApiResponse(responseCode = "201", description = "Reservation created (or already existed)")
     @ApiResponse(responseCode = "400", description = "Invalid request body",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public Mono<ResponseEntity<HotelReservationResponseBody>> reserveHotel(@RequestBody final ReserveHotelRequestBody request) {
+    public Mono<ResponseEntity<ReservationResponseBody>> reserveHotel(@RequestBody final ReserveHotelRequestBody request) {
         log.debug("reserveHotel - {}", request);
 
         return this.hotelReservationProgressionService.reserveHotel(
                         new ReserveHotelRequest(request.sagaId(), request.toHotelBookingRequest(), Instant.now()))
                 .map(reservation -> ResponseEntity.status(HttpStatus.CREATED)
-                        .body(new HotelReservationResponseBody(reservation.id(), reservation.status())))
+                        .body(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
 
@@ -75,12 +75,12 @@ public class HotelController {
     @Operation(summary = "Confirm a hotel reservation",
             description = "Called once payment has completed. Idempotent by sagaId.")
     @ApiResponse(responseCode = "200", description = "Reservation confirmed (or already was)")
-    public Mono<ResponseEntity<HotelReservationResponseBody>> confirmHotel(
+    public Mono<ResponseEntity<ReservationResponseBody>> confirmHotel(
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("confirmHotel - {}", sagaId);
 
-        return this.hotelReservationProgressionService.confirmHotel(new ConfirmHotelRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new HotelReservationResponseBody(reservation.id(), reservation.status())))
+        return this.hotelReservationProgressionService.confirmHotel(new SagaStepRequest(sagaId, Instant.now()))
+                .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
 
@@ -88,12 +88,12 @@ public class HotelController {
     @Operation(summary = "Cancel a hotel reservation",
             description = "Compensation: called when a later saga step fails. Idempotent by sagaId.")
     @ApiResponse(responseCode = "200", description = "Reservation cancelled (or already was)")
-    public Mono<ResponseEntity<HotelReservationResponseBody>> cancelHotelReservation(
+    public Mono<ResponseEntity<ReservationResponseBody>> cancelHotelReservation(
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("cancelHotelReservation - {}", sagaId);
 
-        return this.hotelReservationProgressionService.cancelHotelReservation(new CancelHotelReservationRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new HotelReservationResponseBody(reservation.id(), reservation.status())))
+        return this.hotelReservationProgressionService.cancelHotelReservation(new SagaStepRequest(sagaId, Instant.now()))
+                .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
 }

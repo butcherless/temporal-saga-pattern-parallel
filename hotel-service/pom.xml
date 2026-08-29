@@ -22,6 +22,11 @@
             <artifactId>saga-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.bravo.saga</groupId>
+            <artifactId>leg-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.projectlombok</groupId>

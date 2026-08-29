@@ -1,6 +1,6 @@
-package com.bravo.saga.car.web;
+package com.bravo.saga.leg.web;
 
-import com.bravo.saga.car.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -14,16 +14,18 @@ import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 
 /**
- * Shapes the reservation endpoints' error responses as RFC 9457 {@link ProblemDetail}, same
- * convention as {@code booking-service}'s own {@code RestExceptionHandler}.
+ * Shapes the leg reservation endpoints' error responses as RFC 9457 {@link ProblemDetail}, same
+ * convention as {@code booking-service}'s own {@code RestExceptionHandler}. Shared by
+ * flight-service, hotel-service, and car-service; each pulls it in via its {@code *WebConfig}
+ * {@code @Import} (it lives outside those apps' component-scan root).
  *
- * <p>{@code CarReservationProgressionService} signals "no reservation for this sagaId" as a
- * plain {@link IllegalStateException} (see its {@code loadReservation}, pinned by
- * {@code CarReservationProgressionServiceTest}) rather than a dedicated not-found exception
- * type — mapped here to 404 since that's the only site in this service that throws it.
+ * <p>Each leg's {@code *ReservationProgressionService} signals "no reservation for this sagaId" as
+ * a plain {@link IllegalStateException} (see its {@code loadReservation}, pinned by the
+ * service-layer tests) rather than a dedicated not-found exception type — mapped here to 404 since
+ * that's the only site in these services that throws it.
  */
 @RestControllerAdvice
-public class RestExceptionHandler extends ResponseEntityExceptionHandler {
+public class LegReservationRestExceptionHandler extends ResponseEntityExceptionHandler {
 
     @Override
     protected Mono<ResponseEntity<Object>> handleServerWebInputException(

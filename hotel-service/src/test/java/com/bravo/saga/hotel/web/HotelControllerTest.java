@@ -2,9 +2,10 @@ package com.bravo.saga.hotel.web;
 
 import com.bravo.saga.common.workflow.HotelBookingRequest;
 import com.bravo.saga.hotel.domain.HotelReservation;
-import com.bravo.saga.hotel.domain.IllegalReservationTransitionException;
-import com.bravo.saga.hotel.domain.ReservationStatus;
 import com.bravo.saga.hotel.service.HotelReservationProgressionService;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
+import com.bravo.saga.leg.web.LegReservationRestExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,7 +34,7 @@ class HotelControllerTest {
     @BeforeEach
     void setUp() {
         this.client = WebTestClient.bindToController(new HotelController(this.hotelReservationProgressionService, 0, 0))
-                .controllerAdvice(new RestExceptionHandler())
+                .controllerAdvice(new LegReservationRestExceptionHandler())
                 .build();
     }
 
@@ -101,7 +102,7 @@ class HotelControllerTest {
 
         final ResponseSpec response = this.client.post().uri("/hotel-reservations/{sagaId}/confirm", sagaId).exchange();
 
-        assertProblemDetail(response, 409, "Cannot transition hotel reservation from CANCELLED to CONFIRMED");
+        assertProblemDetail(response, 409, "Cannot transition reservation from CANCELLED to CONFIRMED");
     }
 
     @Test
@@ -126,7 +127,7 @@ class HotelControllerTest {
 
         final ResponseSpec response = this.client.post().uri("/hotel-reservations/{sagaId}/cancel", sagaId).exchange();
 
-        assertProblemDetail(response, 409, "Cannot transition hotel reservation from CONFIRMED to CANCELLED");
+        assertProblemDetail(response, 409, "Cannot transition reservation from CONFIRMED to CANCELLED");
     }
 
     private static void assertProblemDetail(final ResponseSpec response,

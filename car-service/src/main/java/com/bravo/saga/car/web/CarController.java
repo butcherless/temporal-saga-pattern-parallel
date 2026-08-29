@@ -1,9 +1,9 @@
 package com.bravo.saga.car.web;
 
-import com.bravo.saga.car.service.CancelCarReservationRequest;
 import com.bravo.saga.car.service.CarReservationProgressionService;
-import com.bravo.saga.car.service.ConfirmCarRequest;
 import com.bravo.saga.car.service.ReserveCarRequest;
+import com.bravo.saga.leg.service.SagaStepRequest;
+import com.bravo.saga.leg.web.ReservationResponseBody;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -61,13 +61,13 @@ public class CarController {
     @ApiResponse(responseCode = "201", description = "Reservation created (or already existed)")
     @ApiResponse(responseCode = "400", description = "Invalid request body",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public Mono<ResponseEntity<CarReservationResponseBody>> reserveCar(@RequestBody final ReserveCarRequestBody request) {
+    public Mono<ResponseEntity<ReservationResponseBody>> reserveCar(@RequestBody final ReserveCarRequestBody request) {
         log.debug("reserveCar - {}", request);
 
         return this.carReservationProgressionService.reserveCar(
                         new ReserveCarRequest(request.sagaId(), request.toCarBookingRequest(), Instant.now()))
                 .map(reservation -> ResponseEntity.status(HttpStatus.CREATED)
-                        .body(new CarReservationResponseBody(reservation.id(), reservation.status())))
+                        .body(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
 
@@ -75,12 +75,12 @@ public class CarController {
     @Operation(summary = "Confirm a car reservation",
             description = "Called once payment has completed. Idempotent by sagaId.")
     @ApiResponse(responseCode = "200", description = "Reservation confirmed (or already was)")
-    public Mono<ResponseEntity<CarReservationResponseBody>> confirmCar(
+    public Mono<ResponseEntity<ReservationResponseBody>> confirmCar(
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("confirmCar - {}", sagaId);
 
-        return this.carReservationProgressionService.confirmCar(new ConfirmCarRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new CarReservationResponseBody(reservation.id(), reservation.status())))
+        return this.carReservationProgressionService.confirmCar(new SagaStepRequest(sagaId, Instant.now()))
+                .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
 
@@ -88,12 +88,12 @@ public class CarController {
     @Operation(summary = "Cancel a car reservation",
             description = "Compensation: called when a later saga step fails. Idempotent by sagaId.")
     @ApiResponse(responseCode = "200", description = "Reservation cancelled (or already was)")
-    public Mono<ResponseEntity<CarReservationResponseBody>> cancelCarReservation(
+    public Mono<ResponseEntity<ReservationResponseBody>> cancelCarReservation(
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("cancelCarReservation - {}", sagaId);
 
-        return this.carReservationProgressionService.cancelCarReservation(new CancelCarReservationRequest(sagaId, Instant.now()))
-                .map(reservation -> ResponseEntity.ok(new CarReservationResponseBody(reservation.id(), reservation.status())))
+        return this.carReservationProgressionService.cancelCarReservation(new SagaStepRequest(sagaId, Instant.now()))
+                .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
 }

@@ -1,9 +1,11 @@
 package com.bravo.saga.car.service;
 
 import com.bravo.saga.car.domain.CarReservation;
-import com.bravo.saga.car.domain.IllegalReservationTransitionException;
-import com.bravo.saga.car.domain.ReservationStatus;
 import com.bravo.saga.car.persistence.CarReservationRepository;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
+import com.bravo.saga.leg.service.SagaStepRequest;
+import com.bravo.saga.leg.service.SimulatedTransientReservationFaultException;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
@@ -56,7 +58,7 @@ public class CarReservationProgressionService {
      *
      * @throws IllegalReservationTransitionException if the reservation cannot legally be confirmed (e.g. already {@code CANCELLED})
      */
-    public Mono<CarReservation> confirmCar(final ConfirmCarRequest request) {
+    public Mono<CarReservation> confirmCar(final SagaStepRequest request) {
         log.debug("confirmCar - {}", request);
         return this.loadReservation(request.sagaId())
                 .flatMap(reservation -> reservation.status() == ReservationStatus.CONFIRMED
@@ -69,7 +71,7 @@ public class CarReservationProgressionService {
      *
      * @throws IllegalReservationTransitionException if the reservation cannot legally be cancelled (e.g. already {@code CONFIRMED})
      */
-    public Mono<CarReservation> cancelCarReservation(final CancelCarReservationRequest request) {
+    public Mono<CarReservation> cancelCarReservation(final SagaStepRequest request) {
         log.debug("cancelCarReservation - {}", request);
         return this.loadReservation(request.sagaId())
                 .flatMap(reservation -> reservation.status() == ReservationStatus.CANCELLED

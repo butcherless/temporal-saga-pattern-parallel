@@ -1,10 +1,11 @@
 package com.bravo.saga.car.web;
 
 import com.bravo.saga.car.domain.CarReservation;
-import com.bravo.saga.car.domain.IllegalReservationTransitionException;
-import com.bravo.saga.car.domain.ReservationStatus;
 import com.bravo.saga.car.service.CarReservationProgressionService;
 import com.bravo.saga.common.workflow.CarBookingRequest;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
+import com.bravo.saga.leg.web.LegReservationRestExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,7 +34,7 @@ class CarControllerTest {
     @BeforeEach
     void setUp() {
         this.client = WebTestClient.bindToController(new CarController(this.carReservationProgressionService, 0, 0))
-                .controllerAdvice(new RestExceptionHandler())
+                .controllerAdvice(new LegReservationRestExceptionHandler())
                 .build();
     }
 
@@ -101,7 +102,7 @@ class CarControllerTest {
 
         final ResponseSpec response = this.client.post().uri("/car-reservations/{sagaId}/confirm", sagaId).exchange();
 
-        assertProblemDetail(response, 409, "Cannot transition car reservation from CANCELLED to CONFIRMED");
+        assertProblemDetail(response, 409, "Cannot transition reservation from CANCELLED to CONFIRMED");
     }
 
     @Test
@@ -126,7 +127,7 @@ class CarControllerTest {
 
         final ResponseSpec response = this.client.post().uri("/car-reservations/{sagaId}/cancel", sagaId).exchange();
 
-        assertProblemDetail(response, 409, "Cannot transition car reservation from CONFIRMED to CANCELLED");
+        assertProblemDetail(response, 409, "Cannot transition reservation from CONFIRMED to CANCELLED");
     }
 
     private static void assertProblemDetail(final ResponseSpec response,

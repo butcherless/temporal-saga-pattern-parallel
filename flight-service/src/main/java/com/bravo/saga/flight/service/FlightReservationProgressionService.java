@@ -1,9 +1,11 @@
 package com.bravo.saga.flight.service;
 
 import com.bravo.saga.flight.domain.FlightReservation;
-import com.bravo.saga.flight.domain.IllegalReservationTransitionException;
-import com.bravo.saga.flight.domain.ReservationStatus;
 import com.bravo.saga.flight.persistence.FlightReservationRepository;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
+import com.bravo.saga.leg.service.SagaStepRequest;
+import com.bravo.saga.leg.service.SimulatedTransientReservationFaultException;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
@@ -56,7 +58,7 @@ public class FlightReservationProgressionService {
      *
      * @throws IllegalReservationTransitionException if the reservation cannot legally be confirmed (e.g. already {@code CANCELLED})
      */
-    public Mono<FlightReservation> confirmFlight(final ConfirmFlightRequest request) {
+    public Mono<FlightReservation> confirmFlight(final SagaStepRequest request) {
         log.debug("confirmFlight - {}", request);
         return this.loadReservation(request.sagaId())
                 .flatMap(reservation -> reservation.status() == ReservationStatus.CONFIRMED
@@ -69,7 +71,7 @@ public class FlightReservationProgressionService {
      *
      * @throws IllegalReservationTransitionException if the reservation cannot legally be cancelled (e.g. already {@code CONFIRMED})
      */
-    public Mono<FlightReservation> cancelFlightReservation(final CancelFlightReservationRequest request) {
+    public Mono<FlightReservation> cancelFlightReservation(final SagaStepRequest request) {
         log.debug("cancelFlightReservation - {}", request);
         return this.loadReservation(request.sagaId())
                 .flatMap(reservation -> reservation.status() == ReservationStatus.CANCELLED

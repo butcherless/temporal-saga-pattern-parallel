@@ -1,6 +1,8 @@
 package com.bravo.saga.hotel.domain;
 
 import com.bravo.saga.common.workflow.HotelBookingRequest;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Version;
 import org.springframework.data.relational.core.mapping.Table;

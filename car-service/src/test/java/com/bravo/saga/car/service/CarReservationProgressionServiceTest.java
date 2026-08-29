@@ -1,10 +1,12 @@
 package com.bravo.saga.car.service;
 
 import com.bravo.saga.car.domain.CarReservation;
-import com.bravo.saga.car.domain.IllegalReservationTransitionException;
-import com.bravo.saga.car.domain.ReservationStatus;
 import com.bravo.saga.car.persistence.CarReservationRepository;
 import com.bravo.saga.common.workflow.CarBookingRequest;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
+import com.bravo.saga.leg.service.SagaStepRequest;
+import com.bravo.saga.leg.service.SimulatedTransientReservationFaultException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -103,7 +105,7 @@ class CarReservationProgressionServiceTest {
         final CarReservation reserved = CarReservation.reserve(sagaId, carBooking(), NOW);
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(reserved));
 
-        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirmCar(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CONFIRMED))
                 .verifyComplete();
     }
@@ -114,7 +116,7 @@ class CarReservationProgressionServiceTest {
         final CarReservation confirmed = CarReservation.reserve(sagaId, carBooking(), NOW).confirm(NOW);
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(confirmed));
 
-        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirmCar(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CONFIRMED))
                 .verifyComplete();
 
@@ -126,7 +128,7 @@ class CarReservationProgressionServiceTest {
         final UUID sagaId = UUID.randomUUID();
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirmCar(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalStateException.class)
                 .verify();
     }
@@ -137,7 +139,7 @@ class CarReservationProgressionServiceTest {
         final CarReservation cancelled = CarReservation.reserve(sagaId, carBooking(), NOW).cancel(NOW);
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(cancelled));
 
-        StepVerifier.create(this.service.confirmCar(new ConfirmCarRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirmCar(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalReservationTransitionException.class)
                 .verify();
     }
@@ -148,7 +150,7 @@ class CarReservationProgressionServiceTest {
         final CarReservation reserved = CarReservation.reserve(sagaId, carBooking(), NOW);
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(reserved));
 
-        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancelCarReservation(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CANCELLED))
                 .verifyComplete();
     }
@@ -159,7 +161,7 @@ class CarReservationProgressionServiceTest {
         final CarReservation cancelled = CarReservation.reserve(sagaId, carBooking(), NOW).cancel(NOW);
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(cancelled));
 
-        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancelCarReservation(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CANCELLED))
                 .verifyComplete();
 
@@ -171,7 +173,7 @@ class CarReservationProgressionServiceTest {
         final UUID sagaId = UUID.randomUUID();
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancelCarReservation(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalStateException.class)
                 .verify();
     }
@@ -182,7 +184,7 @@ class CarReservationProgressionServiceTest {
         final CarReservation confirmed = CarReservation.reserve(sagaId, carBooking(), NOW).confirm(NOW);
         when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.just(confirmed));
 
-        StepVerifier.create(this.service.cancelCarReservation(new CancelCarReservationRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancelCarReservation(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalReservationTransitionException.class)
                 .verify();
     }

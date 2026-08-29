@@ -1,6 +1,8 @@
 package com.bravo.saga.car.domain;
 
 import com.bravo.saga.common.workflow.CarBookingRequest;
+import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.ReservationStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Version;
 import org.springframework.data.relational.core.mapping.Table;

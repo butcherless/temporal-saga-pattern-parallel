@@ -16,6 +16,7 @@
 
     <modules>
         <module>saga-common</module>
+        <module>leg-common</module>
         <module>saga-orchestrator-temporal</module>
         <module>booking-service</module>
         <module>flight-service</module>
