@@ -44,9 +44,10 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   a bare `ReactiveCrudRepository`, and a `*ReservationProgressionService` with
   reserve/confirm/cancel — idempotent by `sagaId`, same shape as `booking-service`'s
   `TravelBookingProgressionService`. Each has a V1 Flyway migration. Unit-tested against a mocked
-  repository (Mockito + `StepVerifier`) — 10 tests per service, covering idempotency, the
-  not-found path, and both illegal-transition cases (confirming a cancelled reservation, cancelling
-  a confirmed one). Each now also has a `web` layer: `*Controller` (`POST /{leg}-reservations`,
+  repository (Mockito + `StepVerifier`) — 12 tests per service, covering idempotency, the
+  not-found path, both illegal-transition cases (confirming a cancelled reservation, cancelling
+  a confirmed one), and the simulated-transient-fault sentinel (fails once per `sagaId`, then the
+  retry succeeds). Each now also has a `web` layer: `*Controller` (`POST /{leg}-reservations`,
   `/{sagaId}/confirm`, `/{sagaId}/cancel`), `Reserve*RequestBody`/`*ReservationResponseBody`,
   `*WebConfig`, and a `RestExceptionHandler` mapping `IllegalStateException` (the not-found signal
   `loadReservation` already threw — pinned by the existing service-layer tests, not a new type) to
@@ -56,6 +57,16 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   up formally later if these contracts grow past what the code says on its own. Unit-tested via
   `WebTestClient` bound to the controller with a mocked progression service, same pattern as
   `booking-service`'s own `BookingControllerTest`.
+
+  Two dev/test-only additions on top of the above, both defaulting off in unit tests (each
+  Controller test passes 0/0 or omits the trigger, so `./mvnw test` stays fast and deterministic):
+  each `*Controller` also applies a random 10-20s `delayElement` to every reserve/confirm/cancel
+  response (configurable via `<service>.simulated-delay.{min,max}-seconds`, default on in
+  production) to simulate realistic network/processing latency; and each
+  `*ReservationProgressionService#reserve*` recognizes a sentinel `offerReference`
+  (`SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE`, `00000000-0000-0000-0000-000000000001`) that fails
+  the call exactly once per `sagaId` then behaves normally — this repo's only fault-injection
+  mechanism (see Running the full stack locally, below, and `e2e-temporary-fault.sh`).
 - `payment-service` — same shape, adapted to hold/capture/release: `PaymentHold` aggregate +
   `PaymentHoldStatus` (`HELD`→`{CAPTURED, RELEASED}`, both terminal — capturing then releasing is
   correctly rejected, since undoing a capture is a refund, not a release, per
@@ -292,15 +303,23 @@ vars pattern as `temporal-saga-pattern`'s services. `saga-orchestrator-temporal`
 With all six up (either way), `POST /travel-bookings` on `booking-service` (port 8091) drives a
 real saga end to end. Two automated e2e suites do the same thing without manual `curl`:
 `platform-test`'s `TravelBookingEndToEndSagaIT` (Current state, above; JUnit + Testcontainers, no
-Docker Compose needed) and `platform-test/scripts/e2e-happy-path.sh` (plain bash + `curl` against
-the real `docker-compose.yml` stack, `bootstrap_environment` + `post_travel_booking` +
-`wait_booking_status` from `lib/e2e-common.sh`, then asserts every leg's reservation status and the
-payment hold's status directly via `psql`) — mirrors `temporal-saga-pattern`'s own
-`e2e-happy-path.sh`. Unlike that sibling suite, there's only one `e2e-*.sh` scenario here: its
-temporary/permanent-fault scripts rely on fake-failure injection built into `inventory-service`/
-`payment-service` (SKU/amount markers that trigger a simulated timeout or rejection) that this
-repo's real, non-simulated business services don't have — every scenario this suite can currently
-drive is a variant of the happy path.
+Docker Compose needed) and two `platform-test/scripts/e2e-*.sh` scripts (plain bash + `curl`
+against the real `docker-compose.yml` stack, `bootstrap_environment` + a `post_travel_booking*`
+variant + `wait_booking_status` from `lib/e2e-common.sh`, then asserting every leg's reservation
+status and the payment hold's status directly via `psql`) — mirroring `temporal-saga-pattern`'s own
+`e2e-happy-path.sh`:
+
+- `e2e-happy-path.sh` — the main use case, no faults, `post_travel_booking`.
+- `e2e-temporary-fault.sh` — the flight leg's first `reserveFlight` call fails once (via the
+  sentinel `offerReference` `post_travel_booking_with_flight_fault` sends —
+  `SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE`, recognized by
+  `{Flight,Hotel,Car}ReservationProgressionService#reserve*` in all three leg services), Temporal's
+  default Activity retry redelivers it, and the saga still reaches **Confirmed** — proving the
+  retry path without needing a real provider outage. This is this repo's only fault-injection
+  mechanism (unlike `temporal-saga-pattern`'s `inventory-service`/`payment-service` SKU/amount
+  markers, which simulate both temporary *and permanent* faults/rejections) — every other scenario
+  this suite can drive is still a variant of the happy path; a permanent-fault scenario (proving E1
+  compensation, not just a retry) remains open.
 
 ## Explicitly deferred
 

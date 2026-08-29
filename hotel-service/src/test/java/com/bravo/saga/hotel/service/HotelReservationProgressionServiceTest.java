@@ -69,6 +69,35 @@ class HotelReservationProgressionServiceTest {
     }
 
     @Test
+    void reserveHotelSimulatesAOneTimeTransientFaultWhenTheSentinelOfferReferenceIsUsed() {
+        final UUID sagaId = UUID.randomUUID();
+
+        StepVerifier.create(this.service.reserveHotel(new ReserveHotelRequest(sagaId, faultInjectingHotelBooking(), NOW)))
+                .expectError(SimulatedTransientReservationFaultException.class)
+                .verify();
+
+        verify(this.hotelReservationRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void reserveHotelSucceedsOnRetryAfterTheOneTimeSimulatedTransientFault() {
+        final UUID sagaId = UUID.randomUUID();
+        final ReserveHotelRequest request = new ReserveHotelRequest(sagaId, faultInjectingHotelBooking(), NOW);
+        when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.reserveHotel(request))
+                .expectError(SimulatedTransientReservationFaultException.class)
+                .verify();
+
+        StepVerifier.create(this.service.reserveHotel(request))
+                .assertNext(reservation -> {
+                    assertThat(reservation.id()).isEqualTo(sagaId);
+                    assertThat(reservation.status()).isEqualTo(ReservationStatus.RESERVED);
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void confirmHotelAdvancesFromReservedToConfirmed() {
         final UUID sagaId = UUID.randomUUID();
         final HotelReservation reserved = HotelReservation.reserve(sagaId, hotelBooking(), NOW);
@@ -160,5 +189,10 @@ class HotelReservationProgressionServiceTest {
 
     private static HotelBookingRequest hotelBooking() {
         return new HotelBookingRequest("HTL-PARIS-014", "DOUBLE_DELUXE", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), 2, UUID.randomUUID());
+    }
+
+    private static HotelBookingRequest faultInjectingHotelBooking() {
+        return new HotelBookingRequest("HTL-PARIS-014", "DOUBLE_DELUXE", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), 2,
+                HotelReservationProgressionService.SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE);
     }
 }

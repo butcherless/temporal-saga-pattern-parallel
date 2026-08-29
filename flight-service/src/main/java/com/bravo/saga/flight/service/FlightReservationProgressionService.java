@@ -8,7 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Flight Service's idempotent use cases — main use case (docs/travel-booking/use-case-main.md)
@@ -19,7 +21,18 @@ import java.util.UUID;
 @Slf4j
 public class FlightReservationProgressionService {
 
+    /**
+     * A reserved offer reference (never issued by a real provider) that triggers a one-time
+     * simulated transient fault on {@link #reserveFlight} — this repo otherwise has no fault
+     * injection mechanism, unlike {@code temporal-saga-pattern}'s SKU/amount markers (see
+     * CLAUDE.md). Exists to exercise the Temporal Activity retry path manually/in e2e scripts
+     * without needing a real provider outage.
+     */
+    public static final UUID SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE =
+            UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     private final FlightReservationRepository flightReservationRepository;
+    private final Set<UUID> sagaIdsWithSimulatedFaultAlreadyTriggered = ConcurrentHashMap.newKeySet();
 
     public FlightReservationProgressionService(final FlightReservationRepository flightReservationRepository) {
         this.flightReservationRepository = Objects.requireNonNull(flightReservationRepository, "flightReservationRepository must not be null");
@@ -28,6 +41,11 @@ public class FlightReservationProgressionService {
     /** Idempotent by {@code sagaId}: a duplicate call returns the existing reservation unchanged. */
     public Mono<FlightReservation> reserveFlight(final ReserveFlightRequest request) {
         log.debug("reserveFlight - {}", request);
+        if (SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE.equals(request.flightBooking().offerReference())
+                && this.sagaIdsWithSimulatedFaultAlreadyTriggered.add(request.sagaId())) {
+            log.warn("reserveFlight - simulating a one-time transient fault for sagaId={}", request.sagaId());
+            return Mono.error(new SimulatedTransientReservationFaultException(request.sagaId()));
+        }
         return this.flightReservationRepository.findById(request.sagaId())
                 .switchIfEmpty(Mono.defer(() -> this.flightReservationRepository.save(
                         FlightReservation.reserve(request.sagaId(), request.flightBooking(), request.now()))));

@@ -216,21 +216,35 @@ bootstrap_environment() {
     log "All six services are healthy, and none logged an ERROR during startup (business services first, Temporal Worker last)."
 }
 
+# Sentinel offerReference recognized by flight-service/hotel-service/car-service's
+# *ReservationProgressionService (SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE, never issued by a
+# real provider): the first reserve call for a given sagaId against that leg fails, every
+# subsequent call (including Temporal's automatic Activity retry) succeeds normally. Used by
+# e2e-temporary-fault.sh below.
+readonly SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE="00000000-0000-0000-0000-000000000001"
+
 # POST /travel-bookings with a freshly generated businessKey (so re-runs never collide with a
-# previous run's idempotency state) and a fixed, always-valid flight/hotel/car leg (no fault
-# injection exists in flight-service/hotel-service/car-service/payment-service the way
-# temporal-saga-pattern's inventory-service/payment-service simulate temporary/permanent faults —
-# see CLAUDE.md; every scenario this suite can drive today is a variant of the happy path). An
-# optional 1st argument overrides the generated businessKey — used by scenarios that need to POST
-# the same businessKey twice. Sets SAGA_ID and BUSINESS_KEY on success; fails if the response isn't
-# 202 on first submission.
+# previous run's idempotency state) and a fixed, always-valid flight/hotel/car leg. An optional 1st
+# argument overrides the generated businessKey — used by scenarios that need to POST the same
+# businessKey twice. Sets SAGA_ID and BUSINESS_KEY on success; fails if the response isn't 202 on
+# first submission.
 post_travel_booking() {
     local business_key=${1:-"E2E-$SCENARIO_NAME-$(date +%Y%m%d%H%M%S)-$RANDOM"}
     post_travel_booking_with_key "$business_key"
 }
 
+# Same as post_travel_booking, but the flight leg's businessKey resolves to
+# SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE instead of a fresh UUID — used by
+# e2e-temporary-fault.sh to make the flight reservation fail once and retry.
+post_travel_booking_with_flight_fault() {
+    local business_key=${1:-"E2E-$SCENARIO_NAME-$(date +%Y%m%d%H%M%S)-$RANDOM"}
+    post_travel_booking_with_key "$business_key" "$SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE"
+}
+
+# 2nd argument optionally overrides the flight leg's offerReference (defaults to a fresh UUID, same
+# as every call before this override existed).
 post_travel_booking_with_key() {
-    local business_key=$1
+    local business_key=$1 flight_offer_reference=${2:-$(uuid_v4)}
     BUSINESS_KEY="$business_key"
     log "POST /travel-bookings (businessKey=$BUSINESS_KEY)..."
     local response http_code body
@@ -242,7 +256,7 @@ post_travel_booking_with_key() {
               \"businessKey\": \"$BUSINESS_KEY\",
               \"flight\": {
                 \"flightNumber\": \"IB6275\", \"originAirportCode\": \"MAD\", \"destinationAirportCode\": \"CDG\",
-                \"departureDate\": \"2026-09-10\", \"passengerCount\": 2, \"offerReference\": \"$(uuid_v4)\"
+                \"departureDate\": \"2026-09-10\", \"passengerCount\": 2, \"offerReference\": \"$flight_offer_reference\"
               },
               \"hotel\": {
                 \"hotelCode\": \"HTL-PARIS-014\", \"roomType\": \"DOUBLE_DELUXE\",

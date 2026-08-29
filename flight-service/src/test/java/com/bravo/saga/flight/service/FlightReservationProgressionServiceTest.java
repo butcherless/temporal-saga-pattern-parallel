@@ -69,6 +69,35 @@ class FlightReservationProgressionServiceTest {
     }
 
     @Test
+    void reserveFlightSimulatesAOneTimeTransientFaultWhenTheSentinelOfferReferenceIsUsed() {
+        final UUID sagaId = UUID.randomUUID();
+
+        StepVerifier.create(this.service.reserveFlight(new ReserveFlightRequest(sagaId, faultInjectingFlightBooking(), NOW)))
+                .expectError(SimulatedTransientReservationFaultException.class)
+                .verify();
+
+        verify(this.flightReservationRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void reserveFlightSucceedsOnRetryAfterTheOneTimeSimulatedTransientFault() {
+        final UUID sagaId = UUID.randomUUID();
+        final ReserveFlightRequest request = new ReserveFlightRequest(sagaId, faultInjectingFlightBooking(), NOW);
+        when(this.flightReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.reserveFlight(request))
+                .expectError(SimulatedTransientReservationFaultException.class)
+                .verify();
+
+        StepVerifier.create(this.service.reserveFlight(request))
+                .assertNext(reservation -> {
+                    assertThat(reservation.id()).isEqualTo(sagaId);
+                    assertThat(reservation.status()).isEqualTo(ReservationStatus.RESERVED);
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void confirmFlightAdvancesFromReservedToConfirmed() {
         final UUID sagaId = UUID.randomUUID();
         final FlightReservation reserved = FlightReservation.reserve(sagaId, flightBooking(), NOW);
@@ -160,5 +189,10 @@ class FlightReservationProgressionServiceTest {
 
     private static FlightBookingRequest flightBooking() {
         return new FlightBookingRequest("IB6275", "MAD", "CDG", LocalDate.of(2026, 9, 10), 2, UUID.randomUUID());
+    }
+
+    private static FlightBookingRequest faultInjectingFlightBooking() {
+        return new FlightBookingRequest("IB6275", "MAD", "CDG", LocalDate.of(2026, 9, 10), 2,
+                FlightReservationProgressionService.SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE);
     }
 }

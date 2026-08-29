@@ -69,6 +69,35 @@ class CarReservationProgressionServiceTest {
     }
 
     @Test
+    void reserveCarSimulatesAOneTimeTransientFaultWhenTheSentinelOfferReferenceIsUsed() {
+        final UUID sagaId = UUID.randomUUID();
+
+        StepVerifier.create(this.service.reserveCar(new ReserveCarRequest(sagaId, faultInjectingCarBooking(), NOW)))
+                .expectError(SimulatedTransientReservationFaultException.class)
+                .verify();
+
+        verify(this.carReservationRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void reserveCarSucceedsOnRetryAfterTheOneTimeSimulatedTransientFault() {
+        final UUID sagaId = UUID.randomUUID();
+        final ReserveCarRequest request = new ReserveCarRequest(sagaId, faultInjectingCarBooking(), NOW);
+        when(this.carReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.reserveCar(request))
+                .expectError(SimulatedTransientReservationFaultException.class)
+                .verify();
+
+        StepVerifier.create(this.service.reserveCar(request))
+                .assertNext(reservation -> {
+                    assertThat(reservation.id()).isEqualTo(sagaId);
+                    assertThat(reservation.status()).isEqualTo(ReservationStatus.RESERVED);
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void confirmCarAdvancesFromReservedToConfirmed() {
         final UUID sagaId = UUID.randomUUID();
         final CarReservation reserved = CarReservation.reserve(sagaId, carBooking(), NOW);
@@ -160,5 +189,10 @@ class CarReservationProgressionServiceTest {
 
     private static CarBookingRequest carBooking() {
         return new CarBookingRequest("COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), UUID.randomUUID());
+    }
+
+    private static CarBookingRequest faultInjectingCarBooking() {
+        return new CarBookingRequest("COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14),
+                CarReservationProgressionService.SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE);
     }
 }
