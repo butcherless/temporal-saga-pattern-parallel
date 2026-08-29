@@ -1,6 +1,7 @@
 package com.bravo.saga.car.web;
 
 import com.bravo.saga.common.workflow.CarBookingRequest;
+import com.bravo.saga.leg.web.ReserveLegRequestBody;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
@@ -21,7 +22,7 @@ public record ReserveCarRequestBody(
         LocalDate dropoffDate,
         @Schema(description = "UUID identifying a previously-obtained, binding offer from this provider",
                 requiredMode = Schema.RequiredMode.REQUIRED)
-        UUID offerReference) {
+        UUID offerReference) implements ReserveLegRequestBody<CarBookingRequest> {
 
     public ReserveCarRequestBody {
         Objects.requireNonNull(sagaId, "sagaId must not be null");
@@ -33,7 +34,8 @@ public record ReserveCarRequestBody(
     }
 
     /** Converts to the saga-common leg type the service layer consumes, delegating field validation to it. */
-    public CarBookingRequest toCarBookingRequest() {
+    @Override
+    public CarBookingRequest toBookingRequest() {
         return new CarBookingRequest(this.carCategory, this.pickupLocation, this.pickupDate, this.dropoffDate, this.offerReference);
     }
 }

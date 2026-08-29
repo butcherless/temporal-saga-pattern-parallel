@@ -1,6 +1,7 @@
 package com.bravo.saga.flight.web;
 
 import com.bravo.saga.common.workflow.FlightBookingRequest;
+import com.bravo.saga.leg.web.ReserveLegRequestBody;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
@@ -23,7 +24,7 @@ public record ReserveFlightRequestBody(
         Integer passengerCount,
         @Schema(description = "UUID identifying a previously-obtained, binding offer from this provider",
                 requiredMode = Schema.RequiredMode.REQUIRED)
-        UUID offerReference) {
+        UUID offerReference) implements ReserveLegRequestBody<FlightBookingRequest> {
 
     public ReserveFlightRequestBody {
         Objects.requireNonNull(sagaId, "sagaId must not be null");
@@ -36,7 +37,8 @@ public record ReserveFlightRequestBody(
     }
 
     /** Converts to the saga-common leg type the service layer consumes, delegating field validation to it. */
-    public FlightBookingRequest toFlightBookingRequest() {
+    @Override
+    public FlightBookingRequest toBookingRequest() {
         return new FlightBookingRequest(
                 this.flightNumber, this.originAirportCode, this.destinationAirportCode,
                 this.departureDate, this.passengerCount, this.offerReference);

@@ -46,14 +46,18 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
     `ReservationFactory` (`FlightReservation::reserve` etc.) + a leg name. `ReserveLegRequest<B>`
     (was the per-leg `Reserve*Request`), `SagaStepRequest` (the `confirm`/`cancel` input — `sagaId` +
     `now`), `SimulatedTransientReservationFaultException`.
-  - `web/` — `ReservationResponseBody`, `LegReservationRestExceptionHandler` (the RFC 9457
-    `@RestControllerAdvice`, `@Import`ed by each leg's `*WebConfig` since it sits outside those apps'
-    component-scan root).
+  - `web/` — `AbstractLegReservationController<B, BODY>`, holding the `@PostMapping`
+    reserve/confirm/cancel handlers (each leg subclasses it as a thin `@RestController` — see the
+    leg-services entry below); `ReserveLegRequestBody<B>` (the `sagaId()` + `toBookingRequest()`
+    surface the base needs from each `Reserve*RequestBody`); `ReservationResponseBody`;
+    `LegReservationRestExceptionHandler` (the RFC 9457 `@RestControllerAdvice`, `@Import`ed by each
+    leg's `*WebConfig` since it sits outside those apps' component-scan root).
 
   Depends on `saga-common` (for `LegBookingRequest`), `spring-data-commons` (the shared service
   takes a `ReactiveCrudRepository`), and `spring-boot-starter-webflux` + the OpenAPI annotations —
   so, unlike `saga-common`, not Spring-free, hence a separate module. No tests of its own —
-  exercised through the three leg services' tests, same as this repo's `domain` classes.
+  exercised through the three leg services' tests (unit + `platform-test`'s end-to-end IT), same as
+  this repo's `domain` classes.
 - `booking-service` — fully implemented per `docs/travel-booking/controller-layer-plan.md`: `POST
   /travel-bookings` (buy, starts the saga Workflow) and `POST /travel-bookings/{sagaId}/cancel`
   (signals it), plus a third, internal-only `POST /travel-bookings/{sagaId}/confirm` (called by the
@@ -70,17 +74,23 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   repository (Mockito + `StepVerifier`) — 12 tests per service, covering idempotency, the
   not-found path, both illegal-transition cases (confirming a cancelled reservation, cancelling
   a confirmed one), and the simulated-transient-fault sentinel (fails once per `sagaId`, then the
-  retry succeeds). Each now also has a `web` layer: `*Controller` (`POST /{leg}-reservations`,
-  `/{sagaId}/confirm`, `/{sagaId}/cancel`), `Reserve*RequestBody`, `*WebConfig`, and the shared
-  `leg-common` `LegReservationRestExceptionHandler` mapping `IllegalStateException` (the not-found
-  signal `loadReservation` already threw — pinned by the existing service-layer tests, not a new
-  type) to 404 and `IllegalReservationTransitionException` to 409; the response body
-  (`ReservationResponseBody`) is `leg-common`'s too. Their REST contracts weren't written up as
-  a standalone plan doc the way `booking-service`'s was (`controller-layer-plan.md`); they're
-  self-documented via OpenAPI annotations and each controller's own javadoc instead — worth writing
-  up formally later if these contracts grow past what the code says on its own. Unit-tested via
-  `WebTestClient` bound to the controller with a mocked progression service, same pattern as
-  `booking-service`'s own `BookingControllerTest`.
+  retry succeeds). Each now also has a `web` layer, but nearly all of it is `leg-common`'s: the
+  reserve/confirm/cancel handlers (`POST /{leg}-reservations`, `/{sagaId}/confirm`,
+  `/{sagaId}/cancel`) live on `AbstractLegReservationController`, and each leg's `*Controller` is a
+  ~10-line `@RestController` subclass carrying only its `@RequestMapping` path, `@Tag`, and
+  `@Value`-bound simulated-delay config (fixing `B`/`BODY` there is what lets Spring resolve the
+  inherited generic `@RequestBody`). Per-leg web classes are just that `*Controller` shell, the
+  `Reserve*RequestBody` record (`implements ReserveLegRequestBody<*BookingRequest>`), and
+  `*WebConfig`. The `leg-common` `LegReservationRestExceptionHandler` maps `IllegalStateException`
+  (the not-found signal `loadReservation` throws — pinned by the service-layer tests, not a new
+  type) to 404 and `IllegalReservationTransitionException` to 409; `ReservationResponseBody` is
+  `leg-common`'s too. Tradeoff of the shared base: the `@Operation`/`@ApiResponse` summary strings
+  are now generic ("Reserve the leg" rather than "Reserve a flight") — the per-service `@Tag` still
+  distinguishes them, and each service has its own OpenAPI doc anyway. Their REST contracts weren't
+  written up as a standalone plan doc the way `booking-service`'s was (`controller-layer-plan.md`);
+  they're self-documented via those annotations and the controllers' javadoc instead. Unit-tested
+  via `WebTestClient` bound to the concrete controller with a mocked progression service, same
+  pattern as `booking-service`'s own `BookingControllerTest`.
 
   Two dev/test-only additions on top of the above, both defaulting off in unit tests (each
   Controller test passes 0/0 or omits the trigger, so `./mvnw test` stays fast and deterministic):
@@ -217,9 +227,10 @@ booking-specific). Host port *numbers* are deliberately not identical — see Lo
 - `leg-common` — `domain/` (`ReservationStatus`, `IllegalReservationTransitionException`,
   `LegReservation<SELF>`) + `service/` (`LegReservationProgressionService<R, B>`, `ReserveLegRequest<B>`,
   `SagaStepRequest`, `SimulatedTransientReservationFaultException`) + `web/`
-  (`ReservationResponseBody`, `LegReservationRestExceptionHandler`); shared by the three leg
-  services (see Current state above). Depends on `saga-common` + `spring-data-commons` +
-  `spring-boot-starter-webflux`, so — unlike `saga-common` — not Spring-free.
+  (`AbstractLegReservationController<B, BODY>`, `ReserveLegRequestBody<B>`, `ReservationResponseBody`,
+  `LegReservationRestExceptionHandler`); shared by the three leg services (see Current state above).
+  Depends on `saga-common` + `spring-data-commons` + `spring-boot-starter-webflux`, so — unlike
+  `saga-common` — not Spring-free.
 - `booking-service` — `domain`/`persistence`/`service`/`web`; starts and signals the Workflow, and
   is called back by it to confirm.
 - `flight-service`, `hotel-service`, `car-service`, `payment-service` — `domain`/`persistence`/

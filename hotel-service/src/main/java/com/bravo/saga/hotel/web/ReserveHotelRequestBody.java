@@ -1,6 +1,7 @@
 package com.bravo.saga.hotel.web;
 
 import com.bravo.saga.common.workflow.HotelBookingRequest;
+import com.bravo.saga.leg.web.ReserveLegRequestBody;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
@@ -23,7 +24,7 @@ public record ReserveHotelRequestBody(
         Integer guestCount,
         @Schema(description = "UUID identifying a previously-obtained, binding offer from this provider",
                 requiredMode = Schema.RequiredMode.REQUIRED)
-        UUID offerReference) {
+        UUID offerReference) implements ReserveLegRequestBody<HotelBookingRequest> {
 
     public ReserveHotelRequestBody {
         Objects.requireNonNull(sagaId, "sagaId must not be null");
@@ -36,7 +37,8 @@ public record ReserveHotelRequestBody(
     }
 
     /** Converts to the saga-common leg type the service layer consumes, delegating field validation to it. */
-    public HotelBookingRequest toHotelBookingRequest() {
+    @Override
+    public HotelBookingRequest toBookingRequest() {
         return new HotelBookingRequest(this.hotelCode, this.roomType, this.checkInDate, this.checkOutDate, this.guestCount, this.offerReference);
     }
 }
