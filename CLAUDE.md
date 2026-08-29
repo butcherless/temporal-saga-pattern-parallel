@@ -139,9 +139,10 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   `temporalio/temporal` dev-server container, drives one full saga over real HTTP via `POST
   /travel-bookings`, and asserts both the Workflow Execution's own outcome and the row each service
   actually persisted in its own database (`travel_booking.status = CONFIRMED`, all three
-  `*_reservation.status = CONFIRMED`, `payment_hold.status = CAPTURED`) — plus one
-  idempotent-duplicate-`businessKey` scenario. Same structure as `temporal-saga-pattern`'s own
-  `TemporalEndToEndSagaIT`.
+  `*_reservation.status = CONFIRMED`, `payment_hold.status = CAPTURED`), and hits the A2
+  `GET /travel-bookings/{sagaId}` endpoint over real HTTP once the saga completes — plus one
+  idempotent-duplicate-`businessKey` scenario (two tests total). Same structure as
+  `temporal-saga-pattern`'s own `TemporalEndToEndSagaIT`.
 
 **Open items (not blockers, but worth revisiting):**
 - `TravelBookingSagaWorkflow#cancel()` — the signal exists and `booking-service` sends it, but

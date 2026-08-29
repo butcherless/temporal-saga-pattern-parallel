@@ -14,25 +14,25 @@
     <packaging>jar</packaging>
 
     <name>platform-test</name>
-    <description>End-to-end Testcontainers-Postgres + Temporal dev server test module. No *IT.java yet — flight/hotel/car/payment-service
-        have no REST contract to drive a real happy-path saga through; see CLAUDE.md. Structure mirrors temporal-saga-pattern's
-        platform-test so an equivalent HappyPathSagaIT slots in once those services exist.</description>
+    <description>End-to-end Testcontainers-Postgres + Temporal dev server test module. TravelBookingEndToEndSagaIT boots all six
+        services as forked java -jar processes and drives a full happy-path saga (plus an idempotent-duplicate scenario) over
+        real HTTP; see CLAUDE.md. Structure mirrors temporal-saga-pattern's TemporalEndToEndSagaIT.</description>
 
     <dependencies>
         <!-- Brings in temporal-sdk transitively (WorkflowClient/WorkflowServiceStubs), for
-             asserting the Workflow Execution itself closed as COMPLETED, once an IT exists. -->
+             asserting the Workflow Execution itself closed as COMPLETED. -->
         <dependency>
             <groupId>com.bravo.saga</groupId>
             <artifactId>saga-common</artifactId>
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Not used in-process (a future IT would never start a Spring context of its own — each
-             service would run as its own forked `java -jar` process, same reason as
-             temporal-saga-pattern's TemporalEndToEndSagaIT: identically-named classpath resources
-             across service jars rule out an in-process shared classloader). Declared purely so
-             Maven's reactor build order guarantees their jars already exist by the time this
-             module's integration-test phase runs. -->
+        <!-- Not used in-process (the IT never starts a Spring context of its own — each service
+             runs as its own forked `java -jar` process, same reason as temporal-saga-pattern's
+             TemporalEndToEndSagaIT: identically-named classpath resources across service jars rule
+             out an in-process shared classloader). Declared purely so Maven's reactor build order
+             guarantees their jars already exist by the time this module's integration-test phase
+             runs. -->
         <dependency>
             <groupId>com.bravo.saga</groupId>
             <artifactId>booking-service</artifactId>

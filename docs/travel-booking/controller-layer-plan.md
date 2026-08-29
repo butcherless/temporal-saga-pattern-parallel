@@ -1,6 +1,6 @@
 # Travel Booking — Controller Layer Plan
 
-> REST contract for the operations a client can call directly: buy a vacation package, cancel one before it completes, and query its status. Builds on [`business-definitions.md`](./business-definitions.md) and [`use-case-main.md`](./use-case-main.md) — terms and identifiers from those docs (`sagaId`, `businessKey`, offer reference, payment authorization token, EUR) are used here without redefinition. Owning service: **`booking-service`**, the same aggregate-owner role established for the sibling `temporal-saga-pattern`/`temporal-saga-pattern-parallel` repos. Status: **implemented** in `booking-service`'s `web` package (`BookingController` plus a fourth internal operation — see Scope, below); open items (§ below) are refinements, not blockers.
+> REST contract for the operations a client can call directly: buy a vacation package, cancel one before it completes, and query its status. Builds on [`business-definitions.md`](./business-definitions.md) and [`use-case-main.md`](./use-case-main.md) — terms and identifiers from those docs (`sagaId`, `businessKey`, offer reference, payment authorization token, EUR) are used here without redefinition. Owning service: **`booking-service`**, the same aggregate-owner role established for the sibling `temporal-saga-pattern`/`temporal-saga-pattern-parallel` repos. Status: **implemented** in `booking-service`'s `web` package (`BookingController` plus a fourth internal operation — see Scope, below). All three endpoints exist and are tested; the one substantive gap is that Operation 2's `cancel` signal is not yet acted on by the orchestrator (Open items 1), so no booking currently reaches `CANCELLED`. Other open items (§ below) are refinements.
 
 ## Scope
 
@@ -143,7 +143,9 @@ No `price` field anywhere in this request — see definitions §5.
 
 New operation, not previously modeled in the use-case docs. **Business rule: only permitted while the booking has not yet reached `Confirmed`.** Once `Confirmed`, payment has been captured (main use case, step 7) and undoing it needs a client-facing refund flow that isn't modeled here (see Scope, above) — so this endpoint rejects the request instead of attempting one. (The saga's own internal E4 refund is a different path — see use-case-errors.md.)
 
-While still `Pending` (any sub-state — see [definitions §7](./business-definitions.md#7-booking-status--lifecycle)), cancelling drives the same compensation mechanics as a step failure: whichever reservations already succeeded are cancelled, and the payment hold is released if one exists. **Reservation-only compensation (booking never reached `Payment held`) reuses [error scenario E1](./use-case-errors.md)'s mechanics; hold-release (booking reached `Payment held` or `Confirmations pending`) reuses E2/E3's** — all three are now implemented (`TravelBookingSagaWorkflowImpl`), so cancelling during `Confirmations pending` releases the hold and leaves the leg reservations as-is, per E3. The booking's terminal status becomes `Cancelled`, not `Failed` (definitions §7) — same mechanics, different trigger, kept distinguishable for support/reporting.
+While still `Pending` (any sub-state — see [definitions §7](./business-definitions.md#7-booking-status--lifecycle)), the intent is for cancelling to drive the same compensation mechanics as a step failure: whichever reservations already succeeded are cancelled, and the payment hold is released if one exists. **Reservation-only compensation (booking never reached `Payment held`) would reuse [error scenario E1](./use-case-errors.md)'s mechanics; hold-release (booking reached `Payment held` or `Confirmations pending`) would reuse E2/E3's.** The booking's terminal status would then become `Cancelled`, not `Failed` (definitions §7) — same mechanics, different trigger, kept distinguishable for support/reporting.
+
+**Not yet wired (see [Open items](#open-items) 1).** The endpoint is built — it validates the booking hasn't reached `Confirmed`/`Failed` and sends the `cancel` signal to the Workflow — but `TravelBookingSagaWorkflowImpl` receives that signal into an unread field: no compensation runs on cancellation, and no booking ever actually reaches `CANCELLED`. The E1/E2/E3/E4 compensation mechanics exist only on the step-failure paths so far. The rest of this section describes the target contract.
 
 Idempotent by `sagaId`: a repeat cancel call on a booking that's already `Cancelled` (or already compensating toward it) returns the current state rather than re-triggering compensation.
 
@@ -159,7 +161,9 @@ No required body. Optional free-text reason, for audit only — not used in any 
 
 ### Response — cancellation accepted
 
-`202 Accepted` — booking was `Pending`; compensation has started.
+`202 Accepted` — booking was `Pending`; the `cancel` signal has been sent. (Target: compensation
+has started. Currently the orchestrator does not act on the signal — see the "Not yet wired" note
+above.)
 
 ```json
 {
@@ -168,7 +172,7 @@ No required body. Optional free-text reason, for audit only — not used in any 
 }
 ```
 
-(Status is still reported as `PENDING` here, not a new value — internally the booking is in the `Compensating` sub-state, but that sub-state isn't exposed through this endpoint's response any more than `Reservations pending` or `Payment held` are; see Scope, above, on why a status-query endpoint is out of scope for this plan. The booking reaches `CANCELLED` asynchronously.)
+(Status is still reported as `PENDING` here, not a new value — internally the booking would be in the `Compensating` sub-state, but that sub-state isn't exposed through this endpoint's response any more than `Reservations pending` or `Payment held` are; see Scope, above, on why a status-query endpoint is out of scope for this plan. In the target design the booking reaches `CANCELLED` asynchronously; today it does not, since the orchestrator ignores the signal.)
 
 ### Response — idempotent replay (already cancelled)
 
@@ -259,7 +263,7 @@ No body. `sagaId` (also the booking's id) in the path.
 
 ## Open items
 
-1. **E3 dependency — resolved.** E3 (a confirmation fails after the hold) is now implemented in `TravelBookingSagaWorkflowImpl`: release the payment hold, leave leg reservations as-is, fail the booking. Cancelling during `Confirmations pending` inherits that same mechanic. See [errors doc](./use-case-errors.md) E3.
+1. **Cancel → compensation not wired.** E1/E2/E3/E4 compensation is implemented in `TravelBookingSagaWorkflowImpl` on the *step-failure* paths (e.g. E3: a confirmation fails after the hold → release the payment hold, leave leg reservations as-is, fail the booking — see [errors doc](./use-case-errors.md) E3). Operation 2's cancel signal is *not* yet hooked into any of them: `TravelBookingSagaWorkflowImpl.cancel()` sets an unread flag, so a cancelled saga runs to its normal end and `booking-service`'s `CANCELLED` branch is unreachable. Closing this means checking the flag at the fan-out boundaries and driving the matching compensation path.
 2. **Client-initiated refund.** A client-facing "refund my confirmed booking" operation is still not modeled (Scope, above). The saga's own E4 refund on an internal post-capture failure is implemented (`TravelBookingSagaWorkflowImpl`, use-case-errors.md E4) — that's saga compensation, not a client operation.
 3. **Status query granularity.** Operation 3 (`GET /travel-bookings/{sagaId}`) is built but reports only the coarse booking status. Surfacing live per-leg progress ("flight reserved, hotel reserved, car pending") would need a Temporal `@QueryMethod` on the Workflow plus the Workflow tracking that sub-state — deferred (see [alternatives](./use-case-alternatives.md) A2), not currently a product requirement.
 4. **`FAILED` vs. `CANCELLED` conflict handling on cancel.** Treating a cancel-after-`Failed` as `409` rather than an idempotent `200` is a judgment call made in this plan and now built as specified (`BookingAlreadyFailedException` → 409) — still worth confirming, since it's not dictated by any existing doc.
