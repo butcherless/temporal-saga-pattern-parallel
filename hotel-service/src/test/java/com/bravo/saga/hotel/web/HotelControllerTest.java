@@ -55,7 +55,7 @@ class HotelControllerTest {
     void reserveHotelReturns201WithTheReservation() {
         final UUID sagaId = UUID.randomUUID();
         final HotelReservation reservation = HotelReservation.reserve(sagaId, sampleBooking(), Instant.now());
-        when(this.hotelReservationProgressionService.reserveHotel(any())).thenReturn(Mono.just(reservation));
+        when(this.hotelReservationProgressionService.reserve(any())).thenReturn(Mono.just(reservation));
 
         this.client.post().uri("/hotel-reservations")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -84,7 +84,7 @@ class HotelControllerTest {
     void confirmHotelReturns200WithTheConfirmedStatus() {
         final UUID sagaId = UUID.randomUUID();
         final HotelReservation confirmed = HotelReservation.reserve(sagaId, sampleBooking(), Instant.now()).confirm(Instant.now());
-        when(this.hotelReservationProgressionService.confirmHotel(any())).thenReturn(Mono.just(confirmed));
+        when(this.hotelReservationProgressionService.confirm(any())).thenReturn(Mono.just(confirmed));
 
         this.client.post().uri("/hotel-reservations/{sagaId}/confirm", sagaId)
                 .exchange()
@@ -97,7 +97,7 @@ class HotelControllerTest {
     @Test
     void confirmHotelReturns409WhenTheReservationCannotLegallyBeConfirmed() {
         final UUID sagaId = UUID.randomUUID();
-        when(this.hotelReservationProgressionService.confirmHotel(any()))
+        when(this.hotelReservationProgressionService.confirm(any()))
                 .thenReturn(Mono.error(new IllegalReservationTransitionException(ReservationStatus.CANCELLED, ReservationStatus.CONFIRMED)));
 
         final ResponseSpec response = this.client.post().uri("/hotel-reservations/{sagaId}/confirm", sagaId).exchange();
@@ -109,7 +109,7 @@ class HotelControllerTest {
     void cancelHotelReservationReturns200WithTheCancelledStatus() {
         final UUID sagaId = UUID.randomUUID();
         final HotelReservation cancelled = HotelReservation.reserve(sagaId, sampleBooking(), Instant.now()).cancel(Instant.now());
-        when(this.hotelReservationProgressionService.cancelHotelReservation(any())).thenReturn(Mono.just(cancelled));
+        when(this.hotelReservationProgressionService.cancel(any())).thenReturn(Mono.just(cancelled));
 
         this.client.post().uri("/hotel-reservations/{sagaId}/cancel", sagaId)
                 .exchange()
@@ -122,7 +122,7 @@ class HotelControllerTest {
     @Test
     void cancelHotelReservationReturns409WhenTheReservationCannotLegallyBeCancelled() {
         final UUID sagaId = UUID.randomUUID();
-        when(this.hotelReservationProgressionService.cancelHotelReservation(any()))
+        when(this.hotelReservationProgressionService.cancel(any()))
                 .thenReturn(Mono.error(new IllegalReservationTransitionException(ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED)));
 
         final ResponseSpec response = this.client.post().uri("/hotel-reservations/{sagaId}/cancel", sagaId).exchange();

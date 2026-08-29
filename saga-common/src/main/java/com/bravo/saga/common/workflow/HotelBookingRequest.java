@@ -15,7 +15,7 @@ public record HotelBookingRequest(
         LocalDate checkInDate,
         LocalDate checkOutDate,
         Integer guestCount,
-        UUID offerReference) {
+        UUID offerReference) implements LegBookingRequest {
 
     public HotelBookingRequest {
         Objects.requireNonNull(hotelCode, "hotelCode must not be null");

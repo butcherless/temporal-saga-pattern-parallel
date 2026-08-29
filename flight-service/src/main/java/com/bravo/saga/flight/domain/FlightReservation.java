@@ -2,6 +2,7 @@ package com.bravo.saga.flight.domain;
 
 import com.bravo.saga.common.workflow.FlightBookingRequest;
 import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.LegReservation;
 import com.bravo.saga.leg.domain.ReservationStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Version;
@@ -31,7 +32,7 @@ public record FlightReservation(
         ReservationStatus status,
         Instant createdAt,
         Instant updatedAt,
-        @Version Long version) {
+        @Version Long version) implements LegReservation<FlightReservation> {
 
     public FlightReservation {
         Objects.requireNonNull(id, "id must not be null");

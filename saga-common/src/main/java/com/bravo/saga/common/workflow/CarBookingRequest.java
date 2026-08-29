@@ -14,7 +14,7 @@ public record CarBookingRequest(
         String pickupLocation,
         LocalDate pickupDate,
         LocalDate dropoffDate,
-        UUID offerReference) {
+        UUID offerReference) implements LegBookingRequest {
 
     public CarBookingRequest {
         Objects.requireNonNull(carCategory, "carCategory must not be null");

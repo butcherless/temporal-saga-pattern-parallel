@@ -55,7 +55,7 @@ class FlightControllerTest {
     void reserveFlightReturns201WithTheReservation() {
         final UUID sagaId = UUID.randomUUID();
         final FlightReservation reservation = FlightReservation.reserve(sagaId, sampleBooking(), Instant.now());
-        when(this.flightReservationProgressionService.reserveFlight(any())).thenReturn(Mono.just(reservation));
+        when(this.flightReservationProgressionService.reserve(any())).thenReturn(Mono.just(reservation));
 
         this.client.post().uri("/flight-reservations")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -82,7 +82,7 @@ class FlightControllerTest {
 
     @Test
     void reserveFlightReturns404WhenNoReservationExists() {
-        when(this.flightReservationProgressionService.reserveFlight(any()))
+        when(this.flightReservationProgressionService.reserve(any()))
                 .thenReturn(Mono.error(new IllegalStateException("Flight reservation not found: %s".formatted(UUID.randomUUID()))));
 
         final ResponseSpec response = this.client.post().uri("/flight-reservations")
@@ -98,7 +98,7 @@ class FlightControllerTest {
     void confirmFlightReturns200WithTheConfirmedStatus() {
         final UUID sagaId = UUID.randomUUID();
         final FlightReservation confirmed = FlightReservation.reserve(sagaId, sampleBooking(), Instant.now()).confirm(Instant.now());
-        when(this.flightReservationProgressionService.confirmFlight(any())).thenReturn(Mono.just(confirmed));
+        when(this.flightReservationProgressionService.confirm(any())).thenReturn(Mono.just(confirmed));
 
         this.client.post().uri("/flight-reservations/{sagaId}/confirm", sagaId)
                 .exchange()
@@ -111,7 +111,7 @@ class FlightControllerTest {
     @Test
     void confirmFlightReturns409WhenTheReservationCannotLegallyBeConfirmed() {
         final UUID sagaId = UUID.randomUUID();
-        when(this.flightReservationProgressionService.confirmFlight(any()))
+        when(this.flightReservationProgressionService.confirm(any()))
                 .thenReturn(Mono.error(new IllegalReservationTransitionException(ReservationStatus.CANCELLED, ReservationStatus.CONFIRMED)));
 
         final ResponseSpec response = this.client.post().uri("/flight-reservations/{sagaId}/confirm", sagaId).exchange();
@@ -123,7 +123,7 @@ class FlightControllerTest {
     void cancelFlightReservationReturns200WithTheCancelledStatus() {
         final UUID sagaId = UUID.randomUUID();
         final FlightReservation cancelled = FlightReservation.reserve(sagaId, sampleBooking(), Instant.now()).cancel(Instant.now());
-        when(this.flightReservationProgressionService.cancelFlightReservation(any())).thenReturn(Mono.just(cancelled));
+        when(this.flightReservationProgressionService.cancel(any())).thenReturn(Mono.just(cancelled));
 
         this.client.post().uri("/flight-reservations/{sagaId}/cancel", sagaId)
                 .exchange()
@@ -136,7 +136,7 @@ class FlightControllerTest {
     @Test
     void cancelFlightReservationReturns409WhenTheReservationCannotLegallyBeCancelled() {
         final UUID sagaId = UUID.randomUUID();
-        when(this.flightReservationProgressionService.cancelFlightReservation(any()))
+        when(this.flightReservationProgressionService.cancel(any()))
                 .thenReturn(Mono.error(new IllegalReservationTransitionException(ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED)));
 
         final ResponseSpec response = this.client.post().uri("/flight-reservations/{sagaId}/cancel", sagaId).exchange();

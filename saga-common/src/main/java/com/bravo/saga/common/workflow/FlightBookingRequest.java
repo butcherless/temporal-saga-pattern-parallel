@@ -15,7 +15,7 @@ public record FlightBookingRequest(
         String destinationAirportCode,
         LocalDate departureDate,
         Integer passengerCount,
-        UUID offerReference) {
+        UUID offerReference) implements LegBookingRequest {
 
     public FlightBookingRequest {
         Objects.requireNonNull(flightNumber, "flightNumber must not be null");

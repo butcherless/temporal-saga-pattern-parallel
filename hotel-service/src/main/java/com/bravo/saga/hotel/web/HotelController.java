@@ -1,7 +1,7 @@
 package com.bravo.saga.hotel.web;
 
 import com.bravo.saga.hotel.service.HotelReservationProgressionService;
-import com.bravo.saga.hotel.service.ReserveHotelRequest;
+import com.bravo.saga.leg.service.ReserveLegRequest;
 import com.bravo.saga.leg.service.SagaStepRequest;
 import com.bravo.saga.leg.web.ReservationResponseBody;
 import io.swagger.v3.oas.annotations.Operation;
@@ -64,8 +64,8 @@ public class HotelController {
     public Mono<ResponseEntity<ReservationResponseBody>> reserveHotel(@RequestBody final ReserveHotelRequestBody request) {
         log.debug("reserveHotel - {}", request);
 
-        return this.hotelReservationProgressionService.reserveHotel(
-                        new ReserveHotelRequest(request.sagaId(), request.toHotelBookingRequest(), Instant.now()))
+        return this.hotelReservationProgressionService.reserve(
+                        new ReserveLegRequest<>(request.sagaId(), request.toHotelBookingRequest(), Instant.now()))
                 .map(reservation -> ResponseEntity.status(HttpStatus.CREATED)
                         .body(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
@@ -79,7 +79,7 @@ public class HotelController {
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("confirmHotel - {}", sagaId);
 
-        return this.hotelReservationProgressionService.confirmHotel(new SagaStepRequest(sagaId, Instant.now()))
+        return this.hotelReservationProgressionService.confirm(new SagaStepRequest(sagaId, Instant.now()))
                 .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
@@ -92,7 +92,7 @@ public class HotelController {
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("cancelHotelReservation - {}", sagaId);
 
-        return this.hotelReservationProgressionService.cancelHotelReservation(new SagaStepRequest(sagaId, Instant.now()))
+        return this.hotelReservationProgressionService.cancel(new SagaStepRequest(sagaId, Instant.now()))
                 .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }

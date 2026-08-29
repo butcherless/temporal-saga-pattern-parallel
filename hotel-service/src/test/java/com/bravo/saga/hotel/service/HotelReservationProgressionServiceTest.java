@@ -5,6 +5,7 @@ import com.bravo.saga.hotel.domain.HotelReservation;
 import com.bravo.saga.hotel.persistence.HotelReservationRepository;
 import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
 import com.bravo.saga.leg.domain.ReservationStatus;
+import com.bravo.saga.leg.service.ReserveLegRequest;
 import com.bravo.saga.leg.service.SagaStepRequest;
 import com.bravo.saga.leg.service.SimulatedTransientReservationFaultException;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +49,7 @@ class HotelReservationProgressionServiceTest {
         final UUID sagaId = UUID.randomUUID();
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(this.service.reserveHotel(new ReserveHotelRequest(sagaId, hotelBooking(), NOW)))
+        StepVerifier.create(this.service.reserve(new ReserveLegRequest<>(sagaId, hotelBooking(), NOW)))
                 .assertNext(reservation -> {
                     assertThat(reservation.id()).isEqualTo(sagaId);
                     assertThat(reservation.hotelCode()).isEqualTo("HTL-PARIS-014");
@@ -63,7 +64,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation existing = HotelReservation.reserve(sagaId, hotelBooking(), NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(this.service.reserveHotel(new ReserveHotelRequest(sagaId, hotelBooking(), NOW)))
+        StepVerifier.create(this.service.reserve(new ReserveLegRequest<>(sagaId, hotelBooking(), NOW)))
                 .assertNext(reservation -> assertThat(reservation).isEqualTo(existing))
                 .verifyComplete();
 
@@ -74,7 +75,7 @@ class HotelReservationProgressionServiceTest {
     void reserveHotelSimulatesAOneTimeTransientFaultWhenTheSentinelOfferReferenceIsUsed() {
         final UUID sagaId = UUID.randomUUID();
 
-        StepVerifier.create(this.service.reserveHotel(new ReserveHotelRequest(sagaId, faultInjectingHotelBooking(), NOW)))
+        StepVerifier.create(this.service.reserve(new ReserveLegRequest<>(sagaId, faultInjectingHotelBooking(), NOW)))
                 .expectError(SimulatedTransientReservationFaultException.class)
                 .verify();
 
@@ -84,14 +85,14 @@ class HotelReservationProgressionServiceTest {
     @Test
     void reserveHotelSucceedsOnRetryAfterTheOneTimeSimulatedTransientFault() {
         final UUID sagaId = UUID.randomUUID();
-        final ReserveHotelRequest request = new ReserveHotelRequest(sagaId, faultInjectingHotelBooking(), NOW);
+        final ReserveLegRequest<HotelBookingRequest> request = new ReserveLegRequest<>(sagaId, faultInjectingHotelBooking(), NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(this.service.reserveHotel(request))
+        StepVerifier.create(this.service.reserve(request))
                 .expectError(SimulatedTransientReservationFaultException.class)
                 .verify();
 
-        StepVerifier.create(this.service.reserveHotel(request))
+        StepVerifier.create(this.service.reserve(request))
                 .assertNext(reservation -> {
                     assertThat(reservation.id()).isEqualTo(sagaId);
                     assertThat(reservation.status()).isEqualTo(ReservationStatus.RESERVED);
@@ -105,7 +106,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation reserved = HotelReservation.reserve(sagaId, hotelBooking(), NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(reserved));
 
-        StepVerifier.create(this.service.confirmHotel(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirm(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CONFIRMED))
                 .verifyComplete();
     }
@@ -116,7 +117,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation confirmed = HotelReservation.reserve(sagaId, hotelBooking(), NOW).confirm(NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(confirmed));
 
-        StepVerifier.create(this.service.confirmHotel(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirm(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CONFIRMED))
                 .verifyComplete();
 
@@ -128,7 +129,7 @@ class HotelReservationProgressionServiceTest {
         final UUID sagaId = UUID.randomUUID();
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(this.service.confirmHotel(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirm(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalStateException.class)
                 .verify();
     }
@@ -139,7 +140,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation cancelled = HotelReservation.reserve(sagaId, hotelBooking(), NOW).cancel(NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(cancelled));
 
-        StepVerifier.create(this.service.confirmHotel(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.confirm(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalReservationTransitionException.class)
                 .verify();
     }
@@ -150,7 +151,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation reserved = HotelReservation.reserve(sagaId, hotelBooking(), NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(reserved));
 
-        StepVerifier.create(this.service.cancelHotelReservation(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancel(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CANCELLED))
                 .verifyComplete();
     }
@@ -161,7 +162,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation cancelled = HotelReservation.reserve(sagaId, hotelBooking(), NOW).cancel(NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(cancelled));
 
-        StepVerifier.create(this.service.cancelHotelReservation(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancel(new SagaStepRequest(sagaId, NOW)))
                 .assertNext(reservation -> assertThat(reservation.status()).isEqualTo(ReservationStatus.CANCELLED))
                 .verifyComplete();
 
@@ -173,7 +174,7 @@ class HotelReservationProgressionServiceTest {
         final UUID sagaId = UUID.randomUUID();
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(this.service.cancelHotelReservation(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancel(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalStateException.class)
                 .verify();
     }
@@ -184,7 +185,7 @@ class HotelReservationProgressionServiceTest {
         final HotelReservation confirmed = HotelReservation.reserve(sagaId, hotelBooking(), NOW).confirm(NOW);
         when(this.hotelReservationRepository.findById(sagaId)).thenReturn(Mono.just(confirmed));
 
-        StepVerifier.create(this.service.cancelHotelReservation(new SagaStepRequest(sagaId, NOW)))
+        StepVerifier.create(this.service.cancel(new SagaStepRequest(sagaId, NOW)))
                 .expectError(IllegalReservationTransitionException.class)
                 .verify();
     }

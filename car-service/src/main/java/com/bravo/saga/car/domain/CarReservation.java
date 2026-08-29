@@ -2,6 +2,7 @@ package com.bravo.saga.car.domain;
 
 import com.bravo.saga.common.workflow.CarBookingRequest;
 import com.bravo.saga.leg.domain.IllegalReservationTransitionException;
+import com.bravo.saga.leg.domain.LegReservation;
 import com.bravo.saga.leg.domain.ReservationStatus;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Version;
@@ -30,7 +31,7 @@ public record CarReservation(
         ReservationStatus status,
         Instant createdAt,
         Instant updatedAt,
-        @Version Long version) {
+        @Version Long version) implements LegReservation<CarReservation> {
 
     public CarReservation {
         Objects.requireNonNull(id, "id must not be null");

@@ -19,6 +19,29 @@
         record, the reservation response body, and the RFC 9457 exception handler.</description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.bravo.saga</groupId>
+            <artifactId>saga-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- The shared LegReservationProgressionService talks to a Spring Data
+             ReactiveCrudRepository; each leg service passes its own concrete repository in. -->
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-commons</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+        </dependency>
+
         <!-- The web layer this module contributes (RestControllerAdvice + response DTO) needs the
              reactive web stack and the OpenAPI annotations, same two starters the three leg
              services already declare. -->

@@ -1,7 +1,7 @@
 package com.bravo.saga.flight.web;
 
 import com.bravo.saga.flight.service.FlightReservationProgressionService;
-import com.bravo.saga.flight.service.ReserveFlightRequest;
+import com.bravo.saga.leg.service.ReserveLegRequest;
 import com.bravo.saga.leg.service.SagaStepRequest;
 import com.bravo.saga.leg.web.ReservationResponseBody;
 import io.swagger.v3.oas.annotations.Operation;
@@ -64,8 +64,8 @@ public class FlightController {
     public Mono<ResponseEntity<ReservationResponseBody>> reserveFlight(@RequestBody final ReserveFlightRequestBody request) {
         log.debug("reserveFlight - {}", request);
 
-        return this.flightReservationProgressionService.reserveFlight(
-                        new ReserveFlightRequest(request.sagaId(), request.toFlightBookingRequest(), Instant.now()))
+        return this.flightReservationProgressionService.reserve(
+                        new ReserveLegRequest<>(request.sagaId(), request.toFlightBookingRequest(), Instant.now()))
                 .map(reservation -> ResponseEntity.status(HttpStatus.CREATED)
                         .body(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
@@ -79,7 +79,7 @@ public class FlightController {
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("confirmFlight - {}", sagaId);
 
-        return this.flightReservationProgressionService.confirmFlight(new SagaStepRequest(sagaId, Instant.now()))
+        return this.flightReservationProgressionService.confirm(new SagaStepRequest(sagaId, Instant.now()))
                 .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }
@@ -92,7 +92,7 @@ public class FlightController {
             @PathVariable("sagaId") @Parameter(description = "The saga id, also the reservation's id") final UUID sagaId) {
         log.debug("cancelFlightReservation - {}", sagaId);
 
-        return this.flightReservationProgressionService.cancelFlightReservation(new SagaStepRequest(sagaId, Instant.now()))
+        return this.flightReservationProgressionService.cancel(new SagaStepRequest(sagaId, Instant.now()))
                 .map(reservation -> ResponseEntity.ok(new ReservationResponseBody(reservation.id(), reservation.status())))
                 .delayElement(simulatedProcessingDelay());
     }

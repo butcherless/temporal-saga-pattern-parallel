@@ -32,28 +32,41 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
 **Implemented:**
 - `saga-common` — fully implemented: `error/` (carried over unchanged from `temporal-saga-pattern`,
   same precedent as that repo's own relationship to `saga-pattern-poc`), `workflow/`
-  (`TravelBookingSagaInput` + per-leg records, `TravelBookingSagaWorkflow`, `SagaTaskQueues`).
-- `leg-common` — the parts of `flight-service`/`hotel-service`/`car-service` that were byte-identical
-  across all three (they share one reservation lifecycle): `domain/ReservationStatus` +
-  `domain/IllegalReservationTransitionException`, `service/SagaStepRequest` (the `confirm`/`cancel`
-  input — just `sagaId` + `now`) + `service/SimulatedTransientReservationFaultException`,
-  `web/ReservationResponseBody` + `web/LegReservationRestExceptionHandler` (the RFC 9457
-  `@RestControllerAdvice`, `@Import`ed by each leg's `*WebConfig` since it sits outside those apps'
-  component-scan root). Unlike `saga-common` it has a Spring dependency (`spring-boot-starter-webflux`
-  + the OpenAPI annotations), so it's a separate module. No tests of its own — exercised through the
-  three leg services' tests, same as this repo's `domain` classes.
+  (`TravelBookingSagaInput` + per-leg records, all three implementing `LegBookingRequest` — the
+  `offerReference()` surface `leg-common`'s shared progression logic needs —, `TravelBookingSagaWorkflow`,
+  `SagaTaskQueues`).
+- `leg-common` — everything the three leg services (`flight-service`/`hotel-service`/`car-service`)
+  had in common; they share one reservation lifecycle and now differ only in their aggregate record,
+  their `Reserve*RequestBody` DTO, and a handful of OpenAPI strings:
+  - `domain/` — `ReservationStatus`, `IllegalReservationTransitionException`, and `LegReservation<SELF>`
+    (the `id()`/`status()`/`confirm(now)`/`cancel(now)` surface the three aggregate records implement).
+  - `service/` — `LegReservationProgressionService<R extends LegReservation<R>, B extends LegBookingRequest>`,
+    holding all the reserve/confirm/cancel behaviour (idempotent by `sagaId`, plus the
+    simulated-transient-fault sentinel); each leg has a ~15-line subclass binding its types + a
+    `ReservationFactory` (`FlightReservation::reserve` etc.) + a leg name. `ReserveLegRequest<B>`
+    (was the per-leg `Reserve*Request`), `SagaStepRequest` (the `confirm`/`cancel` input — `sagaId` +
+    `now`), `SimulatedTransientReservationFaultException`.
+  - `web/` — `ReservationResponseBody`, `LegReservationRestExceptionHandler` (the RFC 9457
+    `@RestControllerAdvice`, `@Import`ed by each leg's `*WebConfig` since it sits outside those apps'
+    component-scan root).
+
+  Depends on `saga-common` (for `LegBookingRequest`), `spring-data-commons` (the shared service
+  takes a `ReactiveCrudRepository`), and `spring-boot-starter-webflux` + the OpenAPI annotations —
+  so, unlike `saga-common`, not Spring-free, hence a separate module. No tests of its own —
+  exercised through the three leg services' tests, same as this repo's `domain` classes.
 - `booking-service` — fully implemented per `docs/travel-booking/controller-layer-plan.md`: `POST
   /travel-bookings` (buy, starts the saga Workflow) and `POST /travel-bookings/{sagaId}/cancel`
   (signals it), plus a third, internal-only `POST /travel-bookings/{sagaId}/confirm` (called by the
   orchestrator's `BookingActivities`, added here because the happy path needs it — outside that
   doc's original 2-operation scope, worth folding back into it later).
 - `flight-service`, `hotel-service`, `car-service` — `domain`/`persistence`/`service` layers: a
-  `{Flight,Hotel,Car}Reservation` aggregate (record; the reservation-status enum and its
-  illegal-transition exception now live in `leg-common`, above), a bare `ReactiveCrudRepository`,
-  and a `*ReservationProgressionService` with reserve/confirm/cancel — idempotent by `sagaId`, same
-  shape as `booking-service`'s `TravelBookingProgressionService`. `confirm`/`cancel` take the shared
-  `leg-common` `SagaStepRequest`; only `reserve*` keeps a per-leg request type (it carries the leg's
-  booking details). Each has a V1 Flyway migration. Unit-tested against a mocked
+  `{Flight,Hotel,Car}Reservation` aggregate (record, `implements LegReservation<self>`; the
+  status enum, illegal-transition exception, and reserve/confirm/cancel behaviour all live in
+  `leg-common`, above), a bare `ReactiveCrudRepository`, and a `*ReservationProgressionService`
+  that is just a ~15-line subclass of `leg-common`'s generic `LegReservationProgressionService`
+  binding this leg's types + factory + name — same reserve/confirm/cancel semantics as
+  `booking-service`'s `TravelBookingProgressionService`, idempotent by `sagaId`. Each has a V1
+  Flyway migration. Unit-tested against a mocked
   repository (Mockito + `StepVerifier`) — 12 tests per service, covering idempotency, the
   not-found path, both illegal-transition cases (confirming a cancelled reservation, cancelling
   a confirmed one), and the simulated-transient-fault sentinel (fails once per `sagaId`, then the
@@ -199,13 +212,14 @@ booking-specific). Host port *numbers* are deliberately not identical — see Lo
 ### Module layout
 
 - `saga-common` — Spring-free: `error/` + `workflow/` (`TravelBookingSagaWorkflow`,
-  `TravelBookingSagaInput` + `FlightBookingRequest`/`HotelBookingRequest`/`CarBookingRequest`,
-  `SagaTaskQueues`).
-- `leg-common` — `domain/` (`ReservationStatus`, `IllegalReservationTransitionException`) +
-  `service/` (`SagaStepRequest`, `SimulatedTransientReservationFaultException`) + `web/`
+  `TravelBookingSagaInput` + `FlightBookingRequest`/`HotelBookingRequest`/`CarBookingRequest` +
+  their `LegBookingRequest` interface, `SagaTaskQueues`).
+- `leg-common` — `domain/` (`ReservationStatus`, `IllegalReservationTransitionException`,
+  `LegReservation<SELF>`) + `service/` (`LegReservationProgressionService<R, B>`, `ReserveLegRequest<B>`,
+  `SagaStepRequest`, `SimulatedTransientReservationFaultException`) + `web/`
   (`ReservationResponseBody`, `LegReservationRestExceptionHandler`); shared by the three leg
-  services (see Current state above). Has a `spring-boot-starter-webflux` dependency, so — unlike
-  `saga-common` — not Spring-free.
+  services (see Current state above). Depends on `saga-common` + `spring-data-commons` +
+  `spring-boot-starter-webflux`, so — unlike `saga-common` — not Spring-free.
 - `booking-service` — `domain`/`persistence`/`service`/`web`; starts and signals the Workflow, and
   is called back by it to confirm.
 - `flight-service`, `hotel-service`, `car-service`, `payment-service` — `domain`/`persistence`/
