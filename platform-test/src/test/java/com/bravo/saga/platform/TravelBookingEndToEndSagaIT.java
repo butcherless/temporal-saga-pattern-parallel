@@ -27,9 +27,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -87,12 +90,23 @@ class TravelBookingEndToEndSagaIT {
             .withCommand("server", "start-dev", "--ip", "0.0.0.0")
             .withExposedPorts(TEMPORAL_GRPC_PORT);
 
+    /**
+     * The {@code -javaagent:…jacocoagent.jar=destfile=…} template from the build's
+     * {@code jacoco-prepare-agent-integration} execution, handed in as a system property by
+     * failsafe. Blank — e2e coverage off — when the Maven lifecycle did not run that goal, or when
+     * the property arrived unresolved (a raw {@code ${…}}), e.g. a bare {@code failsafe:integration-test}.
+     */
+    private static final String JACOCO_IT_ARGLINE = jacocoItArgLineTemplate();
+
+    private static final Path JACOCO_IT_DIR = Path.of("target", "jacoco-it");
+
     private static List<Process> processes;
 
     @BeforeAll
     static void startAllServices() throws IOException, InterruptedException {
         final Path logDir = Path.of("target", "e2e-logs");
         Files.createDirectories(logDir);
+        Files.createDirectories(JACOCO_IT_DIR);
 
         processes = List.of(
                 startOrchestrator(logDir),
@@ -112,7 +126,21 @@ class TravelBookingEndToEndSagaIT {
 
     @AfterAll
     static void stopAllServices() {
-        processes.forEach(Process::destroyForcibly);
+        // Graceful SIGTERM first so each forked JVM runs its shutdown hooks — the JaCoCo agent
+        // flushes its .exec there. Force-kill only a fork that outstays the grace period.
+        processes.forEach(Process::destroy);
+        processes.forEach(TravelBookingEndToEndSagaIT::awaitExitOrKill);
+    }
+
+    private static void awaitExitOrKill(final Process process) {
+        try {
+            if (!process.waitFor(20, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+        } catch (final InterruptedException _) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
+        }
     }
 
     @Test
@@ -224,10 +252,41 @@ class TravelBookingEndToEndSagaIT {
             final Path logDir) {
         final String version = System.getProperty("saga.platform.version");
         final Path jar = Path.of("..", module, "target", module + "-" + version + "-exec.jar").toAbsolutePath().normalize();
-        final ProcessBuilder builder = new ProcessBuilder("java", "-jar", jar.toString());
+
+        final List<String> command = new ArrayList<>();
+        command.add("java");
+        jacocoAgentArg(module).ifPresent(command::add);
+        command.add("-jar");
+        command.add(jar.toString());
+
+        final ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectOutput(logDir.resolve(module + ".log").toFile());
         builder.redirectErrorStream(true);
         return builder;
+    }
+
+    private static String jacocoItArgLineTemplate() {
+        final String raw = System.getProperty("jacoco.it.argLine", "");
+        return raw.isBlank() || raw.startsWith("${") ? "" : raw;
+    }
+
+    /**
+     * The JaCoCo agent VM arg for one forked service, or empty when e2e coverage is off. Rewrites
+     * the template's {@code destfile=} to a per-service {@code target/jacoco-it/<module>.exec} and
+     * pins {@code append=false} so each run's data stands on its own. The agent writes that file on
+     * JVM shutdown, which is why {@link #stopAllServices()} stops the forks with a graceful signal.
+     */
+    private static Optional<String> jacocoAgentArg(final String module) {
+        if (JACOCO_IT_ARGLINE.isEmpty()) {
+            return Optional.empty();
+        }
+        final Path exec = JACOCO_IT_DIR.resolve(module + ".exec").toAbsolutePath().normalize();
+        String arg = JACOCO_IT_ARGLINE.replaceFirst("destfile=[^,]+",
+                "destfile=" + Matcher.quoteReplacement(exec.toString()));
+        if (!arg.contains("append=")) {
+            arg = arg + ",append=false";
+        }
+        return Optional.of(arg);
     }
 
     private static String temporalTarget() {

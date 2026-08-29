@@ -204,6 +204,38 @@
                             <goal>report</goal>
                         </goals>
                     </execution>
+                    <!-- E2E coverage. prepare-agent-integration resolves the JaCoCo runtime agent
+                         and publishes the `-javaagent:…=destfile=…` string as the `jacocoItArgLine`
+                         property. Nothing here uses it in-JVM: platform-test's TravelBookingEndToEndSagaIT
+                         starts the six services as forked `java -jar` processes, and it reads this
+                         property (passed through as the `jacoco.it.argLine` system property by
+                         platform-test's failsafe config) to prepend a per-service `-javaagent` to each
+                         fork, each dumping to platform-test/target/jacoco-it/<module>.exec on shutdown.
+                         report-integration then renders each service's own e2e .exec into
+                         target/site/jacoco-it/. It auto-skips (logged, non-fatal) for modules with no
+                         matching .exec — saga-common, leg-common, platform-test — and on any build
+                         where the IT has not run yet, so it is one build behind the run that produced
+                         the data (see CLAUDE.md, "E2E code coverage"). -->
+                    <execution>
+                        <id>jacoco-prepare-agent-integration</id>
+                        <goals>
+                            <goal>prepare-agent-integration</goal>
+                        </goals>
+                        <configuration>
+                            <propertyName>jacocoItArgLine</propertyName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report-integration</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-integration</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.basedir}/../platform-test/target/jacoco-it/${project.artifactId}.exec</dataFile>
+                            <outputDirectory>${project.build.directory}/site/jacoco-it</outputDirectory>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

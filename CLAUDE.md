@@ -294,6 +294,46 @@ This only matters when the goal is a jar meant to actually be run (manually, by 
 by an `e2e-*.sh` script — all of which already invoke `clean verify` internally, so only a manual,
 single-module rebuild needs this spelled out).
 
+### Code coverage (JaCoCo)
+
+**Unit coverage** is automatic: the root pom's `jacoco-maven-plugin` binds `prepare-agent` +
+`report` to the `test` phase, so `./mvnw test` writes a per-module HTML report to
+`<module>/target/site/jacoco/` (from `target/jacoco.exec`). There is no aggregate module.
+`saga-common`/`leg-common`/`platform-test` have no unit tests of their own and produce no report;
+JaCoCo measures per-artifact, so `leg-common`'s shared classes (heavily exercised through the four
+leg services' tests) show up in no report at all.
+
+**E2E coverage** measures the real service code during `TravelBookingEndToEndSagaIT`. Because that
+IT runs each service as a forked `java -jar`, the coverage agent has to ride along on every fork:
+
+- Root pom `jacoco-prepare-agent-integration` publishes the `-javaagent:…jacocoagent.jar=…` string
+  as the `jacocoItArgLine` property; `platform-test`'s failsafe config forwards it as the
+  `jacoco.it.argLine` system property.
+- `TravelBookingEndToEndSagaIT` rewrites that template's `destfile=` per service and prepends it to
+  each fork, so every service JVM dumps `platform-test/target/jacoco-it/<module>.exec` **on
+  shutdown** — which is why `@AfterAll` now stops the forks with `Process::destroy` (graceful) and
+  only force-kills a straggler.
+- `post-integration-test` runs `jacoco:merge` → `platform-test/target/jacoco-it/merged.exec` (one
+  file for a manual `jacoco:report`/IDE import over the whole run).
+- Root pom `jacoco-report-integration` (phase `verify`) renders each service's own
+  `jacoco-it/<module>.exec` to `<module>/target/site/jacoco-it/`. It auto-skips (logged,
+  non-fatal) for a module with no matching `.exec`, and — since services `verify` before
+  `platform-test` runs the IT — on the same reactor build that produced the data, so a plain
+  `./mvnw verify` renders the e2e reports from the **previous** run.
+
+To produce and render e2e coverage in one go:
+
+```bash
+./mvnw verify -pl platform-test                       # runs the IT, writes jacoco-it/*.exec + merged.exec
+./mvnw jacoco:report-integration@jacoco-report-integration   # render <module>/target/site/jacoco-it/ now
+```
+
+The `@jacoco-report-integration` execution-id suffix matters: a bare
+`./mvnw jacoco:report-integration` uses the goal's defaults (`target/jacoco-it.exec`) and finds
+nothing. E2E coverage is off (forks start unmodified) whenever `jacoco.it.argLine` is unset or
+arrives unresolved — e.g. a bare `failsafe:integration-test` outside the lifecycle; the `e2e-*.sh`
+bash scenarios are a separate mechanism and are not instrumented.
+
 ### Local infra (PostgreSQL + Temporal)
 
 ```bash

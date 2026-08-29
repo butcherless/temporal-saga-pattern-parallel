@@ -111,12 +111,50 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
                     <systemPropertyVariables>
-                        <!-- Lets a future IT compute each sibling module's built jar path
-                             (../<module>/target/<module>-${saga.platform.version}.jar) without
+                        <!-- Lets the IT compute each sibling module's built jar path
+                             (../<module>/target/<module>-${saga.platform.version}-exec.jar) without
                              hardcoding the version. -->
                         <saga.platform.version>${project.version}</saga.platform.version>
+                        <!-- The `-javaagent:…jacocoagent.jar=destfile=…` string from the root pom's
+                             jacoco-prepare-agent-integration execution. TravelBookingEndToEndSagaIT
+                             rewrites its destfile per service and prepends it to each forked
+                             `java -jar`, so the e2e run is measured in the service JVMs (this test
+                             JVM runs only the harness). Empty/unset when the lifecycle did not run
+                             that goal — the IT treats a blank or unresolved value as "off". -->
+                        <jacoco.it.argLine>${jacocoItArgLine}</jacoco.it.argLine>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <!-- Merges the per-service e2e exec files the forked JVMs dumped into one
+                 jacoco-it/merged.exec, for a manual `jacoco:report`/IDE import over the whole run.
+                 Per-service HTML is rendered separately by the root pom's jacoco-report-integration,
+                 from each service module reading its own jacoco-it/<module>.exec. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>jacoco-merge-integration</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>merge</goal>
+                        </goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${project.build.directory}/jacoco-it</directory>
+                                    <includes>
+                                        <include>*.exec</include>
+                                    </includes>
+                                    <excludes>
+                                        <exclude>merged.exec</exclude>
+                                    </excludes>
+                                </fileSet>
+                            </fileSets>
+                            <destFile>${project.build.directory}/jacoco-it/merged.exec</destFile>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
