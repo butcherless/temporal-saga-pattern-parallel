@@ -50,4 +50,14 @@ public class PaymentActivitiesImpl implements PaymentActivities {
                 .toBodilessEntity()
                 .block();
     }
+
+    @Override
+    public void refundPayment(final UUID sagaId) {
+        log.debug("refundPayment - sagaId={}", sagaId);
+        this.paymentWebClient.post()
+                .uri("/payment-holds/{sagaId}/refund", sagaId)
+                .retrieve()
+                .toBodilessEntity()
+                .block();
+    }
 }

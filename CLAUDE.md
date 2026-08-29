@@ -18,7 +18,7 @@ file only covers what you need to operate/build it day to day, and what's implem
 - [`business-definitions.md`](./docs/travel-booking/business-definitions.md) — canonical vocabulary (actors, identifiers, money/pricing, status lifecycle).
 - [`use-case-main.md`](./docs/travel-booking/use-case-main.md) — the main success scenario, step by step.
 - [`use-case-alternatives.md`](./docs/travel-booking/use-case-alternatives.md) — non-error flows. A1 (idempotent duplicate) and A2 (status query) are both implemented; the rest of the doc is still **PENDING** reconciliation with the current terminology/step numbering.
-- [`use-case-errors.md`](./docs/travel-booking/use-case-errors.md) — failure/compensation scenarios E1-E4. **PENDING** terminology reconciliation on the same grounds; E1/E2/E3 are resolved and implemented below, E4 (refund) remains open.
+- [`use-case-errors.md`](./docs/travel-booking/use-case-errors.md) — failure/compensation scenarios E1-E4, all resolved and implemented below. **PENDING** only a terminology reconciliation pass and per-step retry-policy tuning.
 - [`controller-layer-plan.md`](./docs/travel-booking/controller-layer-plan.md) — the REST contract for `booking-service`'s client-facing operations (buy, cancel, status query).
 
 ## Current state — what's real vs. scaffolded
@@ -103,21 +103,24 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   (`SIMULATED_TRANSIENT_FAULT_OFFER_REFERENCE`, `00000000-0000-0000-0000-000000000001`) that fails
   the call exactly once per `sagaId` then behaves normally — this repo's only fault-injection
   mechanism (see Running the full stack locally, below, and `e2e-temporary-fault.sh`).
-- `payment-service` — same shape, adapted to hold/capture/release: `PaymentHold` aggregate +
-  `PaymentHoldStatus` (`HELD`→`{CAPTURED, RELEASED}`, both terminal — capturing then releasing is
-  correctly rejected, since undoing a capture is a refund, not a release, per
-  business-definitions.md §3) + `IllegalPaymentHoldTransitionException`,
-  `PaymentHoldRepository`, `PaymentHoldProgressionService`. No amount field anywhere — same "no
-  price computation" rule as everywhere else in this saga. `web` layer: `PaymentController` (`POST
-  /payment-holds`, `/{sagaId}/capture`, `/{sagaId}/release`), same DTO/config/exception-handler
-  shape as the three reservation services above (`IllegalPaymentHoldTransitionException` → 409).
+- `payment-service` — same shape, adapted to hold/capture/release/refund: `PaymentHold` aggregate +
+  `PaymentHoldStatus` (`HELD`→`{CAPTURED, RELEASED}`, then `CAPTURED`→`REFUNDED` — post-capture
+  compensation, use-case-errors.md E4; `RELEASED`/`REFUNDED` terminal, and releasing a captured
+  hold is correctly rejected since undoing a capture is a refund, per business-definitions.md §3) +
+  `IllegalPaymentHoldTransitionException`, `PaymentHoldRepository`, `PaymentHoldProgressionService`.
+  No amount field anywhere — same "no price computation" rule as everywhere else in this saga.
+  `web` layer: `PaymentController` (`POST /payment-holds`, `/{sagaId}/capture`, `/{sagaId}/release`,
+  `/{sagaId}/refund`), same DTO/config/exception-handler shape as the three reservation services
+  above (`IllegalPaymentHoldTransitionException` → 409). `status` is a plain `VARCHAR` with no DB
+  constraint, so adding `REFUNDED` needed no Flyway migration.
 - `saga-orchestrator-temporal` — `TravelBookingSagaWorkflowImpl` implements the happy path
-  (use-case-main.md steps 1-8) plus E1/E2/E3 compensation (use-case-errors.md) via manual
+  (use-case-main.md steps 1-8) plus E1-E4 compensation (use-case-errors.md) via manual
   per-`Promise` inspection rather than `io.temporal.workflow.Saga` (that class's LIFO stack doesn't
-  fit a parallel fan-out — see that Workflow class's own javadoc). E3 (a confirmation fails after
-  the hold) compensates with a payment hold *release* only — no refund (capture hasn't run) and no
-  reservation unwinding (a `CONFIRMED` leg is terminal; a reserved-not-confirmed leg is a valid
-  Failed end state). Its five Activity
+  fit a parallel fan-out — see that Workflow class's own javadoc). Compensation never unwinds leg
+  reservations post-hold (a `CONFIRMED` leg is terminal; a reserved-not-confirmed leg is a valid
+  Failed end state) — it acts only on payment: E3/E4-capture-failed *release* the still-`HELD` hold,
+  E4-post-capture *refunds* the `CAPTURED` one. The booking always ends `Failed`; `payment_hold.status`
+  (`RELEASED` vs `REFUNDED`) is what tells the two apart. Its five Activity
   **implementations** (`FlightActivitiesImpl`/`HotelActivitiesImpl`/`CarActivitiesImpl`/
   `PaymentActivitiesImpl`/`BookingActivitiesImpl`) are plain `@Slf4j`/`@Component` beans, each
   making one blocking `WebClient` call per method into the matching business service's `web` layer
@@ -376,7 +379,9 @@ Everything listed under "Open items" above, plus (mirroring `temporal-saga-patte
 
 - A shared library between this repo and `temporal-saga-pattern` — same "not yet" as that repo's own
   relationship to `saga-pattern-poc`.
-- Refund (`use-case-errors.md`, E4) and everything downstream of it.
+- A separate, longer-running refund-tracking process — E4's refund runs inline in the saga
+  (use-case-errors.md, E4); delegating it to its own workflow is the production-realistic option,
+  not built.
 - Live per-leg progress in the status query — `GET /travel-bookings/{sagaId}` is implemented
   (`use-case-alternatives.md` A2) but reports only the coarse booking status; surfacing which legs
   are reserved/confirmed so far would need a Workflow `@QueryMethod` and is deferred.

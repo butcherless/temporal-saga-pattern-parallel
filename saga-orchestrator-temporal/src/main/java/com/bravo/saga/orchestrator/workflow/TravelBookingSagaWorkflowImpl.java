@@ -34,7 +34,10 @@ import java.util.function.Supplier;
  *     leg cannot be un-confirmed ({@code ReservationStatus.CONFIRMED} is terminal; the leg
  *     services' cancel endpoint rejects it), and a leg that only reserved is a valid Failed-booking
  *     end state.</li>
- *     <li>E4 (capture fails / refund) is out of scope entirely — no refund exists yet.</li>
+ *     <li>E4 (a failure at or after payment capture) is implemented: if {@code capturePayment}
+ *     itself fails the hold is still {@code HELD}, so it is released (no money moved); if a step
+ *     <em>after</em> a successful capture fails the hold is {@code CAPTURED}, so a real refund is
+ *     issued. Legs are left as-is either way.</li>
  *     <li>The {@link #cancel()} signal is received but not yet acted upon — see its javadoc on
  *     {@link TravelBookingSagaWorkflow}.</li>
  * </ul>
@@ -99,8 +102,24 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
             throw confirmationFailed;
         }
 
-        this.paymentActivities.capturePayment(input.sagaId());
-        this.bookingActivities.confirmBooking(input.sagaId());
+        try {
+            this.paymentActivities.capturePayment(input.sagaId());
+        } catch (final RuntimeException captureFailed) {
+            // E4, capture never took: capture is idempotent and retried, so a permanent failure
+            // means nothing was captured — the hold is still HELD and is released, not refunded.
+            this.paymentActivities.releasePaymentHold(input.sagaId());
+            throw captureFailed;
+        }
+
+        try {
+            this.bookingActivities.confirmBooking(input.sagaId());
+        } catch (final RuntimeException bookingConfirmationFailed) {
+            // E4, post-capture: money has been captured, so the compensation is a real refund
+            // (releasePaymentHold would be rejected — CAPTURED cannot transition to RELEASED).
+            // Legs are left as-is (all confirmed); the booking ends Failed.
+            this.paymentActivities.refundPayment(input.sagaId());
+            throw bookingConfirmationFailed;
+        }
     }
 
     /**

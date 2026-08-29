@@ -3,6 +3,7 @@ package com.bravo.saga.payment.web;
 import com.bravo.saga.payment.service.CapturePaymentRequest;
 import com.bravo.saga.payment.service.HoldPaymentRequest;
 import com.bravo.saga.payment.service.PaymentHoldProgressionService;
+import com.bravo.saga.payment.service.RefundPaymentRequest;
 import com.bravo.saga.payment.service.ReleasePaymentHoldRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -28,7 +29,7 @@ import java.util.UUID;
 /** REST entry points for the payment hold lifecycle, called by the saga Workflow's PaymentActivities. */
 @RestController
 @RequestMapping("/payment-holds")
-@Tag(name = "Payment holds", description = "Hold, capture, and release a payment hold for a saga")
+@Tag(name = "Payment holds", description = "Hold, capture, release, and refund a payment hold for a saga")
 @Slf4j
 public class PaymentController {
 
@@ -73,6 +74,21 @@ public class PaymentController {
         log.debug("releasePaymentHold - {}", sagaId);
 
         return this.paymentHoldProgressionService.releasePaymentHold(new ReleasePaymentHoldRequest(sagaId, Instant.now()))
+                .map(hold -> ResponseEntity.ok(new PaymentHoldResponseBody(hold.id(), hold.status())));
+    }
+
+    @PostMapping("/{sagaId}/refund")
+    @Operation(summary = "Refund a captured payment hold",
+            description = "Post-capture compensation (use-case-errors.md E4): called when a step fails after "
+                    + "the hold was already captured. Idempotent by sagaId.")
+    @ApiResponse(responseCode = "200", description = "Hold refunded (or already was)")
+    @ApiResponse(responseCode = "409", description = "Hold is not CAPTURED and so cannot be refunded",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    public Mono<ResponseEntity<PaymentHoldResponseBody>> refundPayment(
+            @PathVariable("sagaId") @Parameter(description = "The saga id, also the hold's id") final UUID sagaId) {
+        log.debug("refundPayment - {}", sagaId);
+
+        return this.paymentHoldProgressionService.refundPayment(new RefundPaymentRequest(sagaId, Instant.now()))
                 .map(hold -> ResponseEntity.ok(new PaymentHoldResponseBody(hold.id(), hold.status())));
     }
 }

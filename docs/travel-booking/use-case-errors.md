@@ -1,6 +1,6 @@
 # Use Case: Complete a Travel Booking — Error & Compensation Flows
 
-> Failure scenarios for the [main success scenario](./use-case-main.md), and the business-level compensation each one requires. Terms defined in [`business-definitions.md`](./business-definitions.md). Status: **PENDING terminology reconciliation — not yet reviewed against the main case's current wording (e.g. "offer reference" vs. the earlier "business key" phrasing) or its 8-step numbering; the E1/E2 content and step citations predate that rename. E1/E2/E3 are implemented (`TravelBookingSagaWorkflowImpl`); E4 (refund) remains an open business-logic question — see §5.**
+> Failure scenarios for the [main success scenario](./use-case-main.md), and the business-level compensation each one requires. Terms defined in [`business-definitions.md`](./business-definitions.md). Status: **PENDING terminology reconciliation — not yet reviewed against the main case's current wording (e.g. "offer reference" vs. the earlier "business key" phrasing) or its 8-step numbering; the E1/E2 content and step citations predate that rename. All four scenarios (E1-E4) are resolved and implemented in `TravelBookingSagaWorkflowImpl`; what remains is the terminology pass and the per-step retry-policy tuning noted in §5.**
 
 ## Why compensation splits into exactly two shapes
 
@@ -47,20 +47,27 @@ The [main flow](./use-case-main.md)'s payment hold (step 4) can only be reached 
 - *Retry the failed confirmation first?* Temporal's Activity retry already redelivers transient failures transparently. E3 compensation fires only once the confirmation Activity gives up (a non-retryable failure) — symmetric with E1/E2. Per-step retry *tuning* stays open (question #4).
 - *Unwind the other, possibly-already-`Confirmed` legs?* **No, and it isn't possible** — see step 2. The compensation owed, because money moved, is the hold release.
 
-## E4 — Payment capture fails, or a failure is discovered after capture *(open)*
+## E4 — Payment capture fails, or a failure is discovered after capture *(resolved)*
 
-**Trigger:** step 7 of the main flow (capture payment) fails outright, or a failure in booking completion is discovered after capture already succeeded.
+**Trigger:** step 7 of the main flow (capture payment) fails outright, or step 8 (booking confirmation) fails after capture already succeeded.
 
-**Status: unresolved**, and qualitatively different from E1–E3. The hold-vs-capture distinction drives why:
+The hold-vs-capture distinction splits this into two paths:
 
 | Payment state at failure | Compensation | Characteristics |
 |---|---|---|
-| **Held** (not yet captured) — E1/E2/E3 | Release the hold | Reversible, typically instant, no real charge to reverse |
-| **Captured** — E4 | Real refund against the payment gateway | Asynchronous, can fail independently, may take days to settle — a true compensating transaction |
+| **Held** (capture never took) | Release the hold | Reversible, instant, no real charge to reverse — same as E2/E3 |
+| **Captured** (capture succeeded, a later step failed) | Real refund (`CAPTURED → REFUNDED`) | Asynchronous against a real gateway; can fail independently; leans on Temporal's Activity retry |
 
-What's still undecided:
-- Whether refund compensation runs inside the same saga/workflow execution, or is delegated to a separate, longer-running refund-tracking process that the saga merely triggers and doesn't wait on.
-- What "Failed" means for a booking where the legs are all genuinely confirmed but the refund is still pending — is that a distinct status from E1/E2/E3's Failed?
+**Flow:**
+1. **Capture fails.** `capturePayment` is idempotent and retried, so a permanent failure means nothing was captured — the hold is still `HELD`. The orchestrator releases it (`releasePaymentHold`), exactly as E2/E3 would.
+2. **Capture succeeded, booking confirmation fails.** The hold is `CAPTURED`, so `releasePaymentHold` would be rejected (`CAPTURED` cannot go to `RELEASED`). The orchestrator issues a real refund (`refundPayment`, `CAPTURED → REFUNDED`).
+3. Either way, leg reservations are left as-is (all three are `Confirmed` by this point — nothing to unwind, and a confirmed leg is terminal), and the booking is marked **Failed**.
+
+**Outcome:** booking **Failed**. `payment_hold.status` ends `RELEASED` (path 1) or `REFUNDED` (path 2) — that column, not a new booking status, is what distinguishes an E4 refund from an E2/E3 release for support/reporting.
+
+**Decisions made:**
+- *Refund inside the saga, or a separate process?* **Inside the same Workflow Execution** — consistent with E1/E2/E3 running inline, and Temporal's Activity retry (backoff, long-lived) is the right tool for "async, can fail independently". A dedicated refund-tracking process would be more production-realistic but is a larger architectural piece with no grounding in the current code — not built.
+- *Does the booking need a status distinct from E1/E2/E3's `Failed`?* **No.** The booking stays `Failed`; the refund-vs-release distinction lives in `payment_hold.status` (`REFUNDED` vs `RELEASED`). A new `TravelBookingStatus` value would mean a migration and transition-graph changes across `booking-service` for no behavioural gain.
 
 ## Summary table
 
@@ -69,12 +76,13 @@ What's still undecided:
 | E1 | A reservation fails (pre-hold) | Whichever reservations succeeded | No | Resolved |
 | E2 | The hold fails | All three reservations (guaranteed succeeded) | No | Resolved |
 | E3 | A confirmation fails (post-hold) | Hold release only — leg reservations left as-is | No (hold only) | Resolved |
-| E4 | Capture fails / post-capture failure | Real refund | Yes | **Open** |
+| E4 | Capture fails | Hold release (nothing was captured) | No | Resolved |
+| E4 | Booking confirmation fails after capture | Real refund (`CAPTURED → REFUNDED`) | Yes | Resolved |
 
 ## Open questions carried forward
 
 1. ~~**E3 resolution**~~ — resolved and implemented (see E3 above): hold release only, leg reservations left as-is.
-2. **E4 resolution** — see above, including whether it belongs in this saga at all.
-3. **Idempotency of compensation operations** — cancel/release/refund endpoints need the same `sagaId`-keyed idempotency discipline as the forward-path operations (definitions §3), since compensation commands may be retried or redelivered.
-4. **Timeout/retry policy per step** — reservation vs. confirmation vs. hold vs. capture may each warrant a different policy; not yet specified for any of them.
+2. ~~**E4 resolution**~~ — resolved and implemented (see E4 above): capture-failed → release; post-capture failure → refund (`CAPTURED → REFUNDED`); runs inside the saga; booking stays `Failed`.
+3. **Idempotency of compensation operations** — cancel/release/refund endpoints all key off `sagaId` and return the existing row unchanged on a repeat call (definitions §3), the same discipline as the forward path.
+4. **Timeout/retry policy per step** — reservation vs. confirmation vs. hold vs. capture vs. refund may each warrant a different policy; still a single placeholder `ActivityOptions` for all of them. A refund in particular ("may take days to settle") would want a much longer, more patient retry than a reservation.
 5. **Timeout vs. explicit failure during E1** — if one leg fails while another hasn't responded at all yet (as opposed to having explicitly failed), does the orchestrator treat the non-responder as failed after some timeout, or wait indefinitely for it to settle before compensating? Not yet decided.

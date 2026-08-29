@@ -52,4 +52,14 @@ class PaymentActivitiesImplTest {
 
         ExchangeFunctionStub.assertPostedTo(this.exchangeFunction, "/payment-holds/%s/release".formatted(sagaId));
     }
+
+    @Test
+    void refundPaymentPostsToTheRefundEndpointForTheGivenSagaId() {
+        final UUID sagaId = UUID.randomUUID();
+        ExchangeFunctionStub.stubResponse(this.exchangeFunction, HttpStatus.OK);
+
+        this.activities.refundPayment(sagaId);
+
+        ExchangeFunctionStub.assertPostedTo(this.exchangeFunction, "/payment-holds/%s/refund".formatted(sagaId));
+    }
 }

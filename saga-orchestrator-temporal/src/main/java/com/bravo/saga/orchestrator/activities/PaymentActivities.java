@@ -21,7 +21,11 @@ public interface PaymentActivities {
     @ActivityMethod
     void capturePayment(UUID sagaId);
 
-    /** Compensation: releases the hold. Refund (post-capture compensation) is out of scope — see use-case-errors.md, E4. */
+    /** Compensation while the hold is still HELD (use-case-errors.md E2/E3): releases it. */
     @ActivityMethod
     void releasePaymentHold(UUID sagaId);
+
+    /** Post-capture compensation (use-case-errors.md E4): refunds a hold that was already captured. */
+    @ActivityMethod
+    void refundPayment(UUID sagaId);
 }

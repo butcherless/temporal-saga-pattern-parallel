@@ -113,6 +113,31 @@ class PaymentControllerTest {
         assertProblemDetail(response, 409, "Cannot transition payment hold from CAPTURED to RELEASED");
     }
 
+    @Test
+    void refundPaymentReturns200WithTheRefundedStatus() {
+        final UUID sagaId = UUID.randomUUID();
+        final PaymentHold refunded = PaymentHold.hold(sagaId, "pat_9f3e2b7c8a1d4e5f", Instant.now()).capture(Instant.now()).refund(Instant.now());
+        when(this.paymentHoldProgressionService.refundPayment(any())).thenReturn(Mono.just(refunded));
+
+        this.client.post().uri("/payment-holds/{sagaId}/refund", sagaId)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.sagaId").isEqualTo(sagaId.toString())
+                .jsonPath("$.status").isEqualTo(PaymentHoldStatus.REFUNDED.name());
+    }
+
+    @Test
+    void refundPaymentReturns409WhenTheHoldIsNotCaptured() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.paymentHoldProgressionService.refundPayment(any()))
+                .thenReturn(Mono.error(new IllegalPaymentHoldTransitionException(PaymentHoldStatus.HELD, PaymentHoldStatus.REFUNDED)));
+
+        final ResponseSpec response = this.client.post().uri("/payment-holds/{sagaId}/refund", sagaId).exchange();
+
+        assertProblemDetail(response, 409, "Cannot transition payment hold from HELD to REFUNDED");
+    }
+
     private static void assertProblemDetail(final ResponseSpec response,
             final int expectedStatus,
             final String expectedDetail) {

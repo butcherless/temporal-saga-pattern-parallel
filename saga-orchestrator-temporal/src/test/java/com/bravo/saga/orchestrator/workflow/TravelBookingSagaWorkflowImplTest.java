@@ -200,6 +200,54 @@ class TravelBookingSagaWorkflowImplTest {
         this.assertBefore(sagaId, "holdPayment", "releasePaymentHold");
     }
 
+    /**
+     * E4, capture never took (use-case-errors.md): {@code capturePayment} fails permanently — since
+     * capture is idempotent and retried, that means nothing was captured, so the still-{@code HELD}
+     * hold is <em>released</em>, not refunded. No leg is touched, and the saga stops before booking
+     * confirmation.
+     */
+    @Test
+    void processReleasesTheHoldWhenCaptureFailsPermanently() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBookingSagaInput input = defaultInput(sagaId);
+
+        final TravelBookingSagaWorkflow workflow = this.newWorkflowStub(FakeActivities.builder(this.callLog).failCapturePaymentPermanently().build());
+
+        assertThatThrownBy(() -> workflow.process(input)).isInstanceOf(WorkflowFailedException.class);
+
+        assertThat(this.callLog)
+                .contains("capturePayment(%s)".formatted(sagaId),
+                        "releasePaymentHold(%s)".formatted(sagaId))
+                .doesNotContain("refundPayment(%s)".formatted(sagaId),
+                        "confirmBooking(%s)".formatted(sagaId))
+                .noneSatisfy(call -> assertThat(call).startsWith("cancel"));
+        this.assertBefore(sagaId, "capturePayment", "releasePaymentHold");
+    }
+
+    /**
+     * E4, post-capture (use-case-errors.md): the capture succeeds, then {@code confirmBooking} fails
+     * permanently — money has moved, so the compensation is a real {@code refundPayment}, not a
+     * hold release. Legs are left as-is (all confirmed); no cancellation.
+     */
+    @Test
+    void processRefundsWhenBookingConfirmationFailsAfterCapture() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBookingSagaInput input = defaultInput(sagaId);
+
+        final TravelBookingSagaWorkflow workflow = this.newWorkflowStub(FakeActivities.builder(this.callLog).failConfirmBookingPermanently().build());
+
+        assertThatThrownBy(() -> workflow.process(input)).isInstanceOf(WorkflowFailedException.class);
+
+        assertThat(this.callLog)
+                .contains("capturePayment(%s)".formatted(sagaId),
+                        "confirmBooking(%s)".formatted(sagaId),
+                        "refundPayment(%s)".formatted(sagaId))
+                .doesNotContain("releasePaymentHold(%s)".formatted(sagaId))
+                .noneSatisfy(call -> assertThat(call).startsWith("cancel"));
+        this.assertBefore(sagaId, "capturePayment", "confirmBooking");
+        this.assertBefore(sagaId, "confirmBooking", "refundPayment");
+    }
+
     private void assertBefore(final UUID sagaId,
             final String earlierCallPrefix,
             final String laterCallPrefix) {
@@ -243,6 +291,8 @@ class TravelBookingSagaWorkflowImplTest {
         private final boolean reserveCarFailsPermanently;
         private final boolean holdPaymentFailsPermanently;
         private final boolean confirmHotelFailsPermanently;
+        private final boolean capturePaymentFailsPermanently;
+        private final boolean confirmBookingFailsPermanently;
 
         private FakeActivities(final Builder builder) {
             this.callLog = builder.callLog;
@@ -251,6 +301,8 @@ class TravelBookingSagaWorkflowImplTest {
             this.reserveCarFailsPermanently = builder.reserveCarFailsPermanently;
             this.holdPaymentFailsPermanently = builder.holdPaymentFailsPermanently;
             this.confirmHotelFailsPermanently = builder.confirmHotelFailsPermanently;
+            this.capturePaymentFailsPermanently = builder.capturePaymentFailsPermanently;
+            this.confirmBookingFailsPermanently = builder.confirmBookingFailsPermanently;
         }
 
         static Builder builder(final List<String> callLog) {
@@ -329,6 +381,9 @@ class TravelBookingSagaWorkflowImplTest {
         @Override
         public void capturePayment(final UUID sagaId) {
             this.callLog.add("capturePayment(%s)".formatted(sagaId));
+            if (this.capturePaymentFailsPermanently) {
+                throw ApplicationFailure.newNonRetryableFailure("Simulated permanent payment capture failure", "PermanentSagaException");
+            }
         }
 
         @Override
@@ -337,8 +392,16 @@ class TravelBookingSagaWorkflowImplTest {
         }
 
         @Override
+        public void refundPayment(final UUID sagaId) {
+            this.callLog.add("refundPayment(%s)".formatted(sagaId));
+        }
+
+        @Override
         public void confirmBooking(final UUID sagaId) {
             this.callLog.add("confirmBooking(%s)".formatted(sagaId));
+            if (this.confirmBookingFailsPermanently) {
+                throw ApplicationFailure.newNonRetryableFailure("Simulated permanent booking confirmation failure", "PermanentSagaException");
+            }
         }
 
         private static final class Builder {
@@ -348,6 +411,8 @@ class TravelBookingSagaWorkflowImplTest {
             private boolean reserveCarFailsPermanently;
             private boolean holdPaymentFailsPermanently;
             private boolean confirmHotelFailsPermanently;
+            private boolean capturePaymentFailsPermanently;
+            private boolean confirmBookingFailsPermanently;
 
             private Builder(final List<String> callLog) {
                 this.callLog = callLog;
@@ -375,6 +440,16 @@ class TravelBookingSagaWorkflowImplTest {
 
             Builder failConfirmHotelPermanently() {
                 this.confirmHotelFailsPermanently = true;
+                return this;
+            }
+
+            Builder failCapturePaymentPermanently() {
+                this.capturePaymentFailsPermanently = true;
+                return this;
+            }
+
+            Builder failConfirmBookingPermanently() {
+                this.confirmBookingFailsPermanently = true;
                 return this;
             }
 

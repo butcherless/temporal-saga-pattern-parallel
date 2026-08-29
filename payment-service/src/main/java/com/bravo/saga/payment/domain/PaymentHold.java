@@ -53,13 +53,23 @@ public record PaymentHold(
     }
 
     /**
-     * Releases the hold (compensation) — use-case-errors.md E2.
+     * Releases the hold (compensation) — use-case-errors.md E2/E3.
      *
      * @throws IllegalPaymentHoldTransitionException if {@code status} cannot transition to {@link PaymentHoldStatus#RELEASED}
      * (e.g. already {@code CAPTURED} — undoing a capture is a refund, not a release, per business-definitions.md §3)
      */
     public PaymentHold release(final Instant now) {
         return this.advanceTo(PaymentHoldStatus.RELEASED, now);
+    }
+
+    /**
+     * Refunds a captured hold (post-capture compensation) — use-case-errors.md E4.
+     *
+     * @throws IllegalPaymentHoldTransitionException if {@code status} cannot transition to {@link PaymentHoldStatus#REFUNDED}
+     * (only a {@code CAPTURED} hold can be refunded; a still-{@code HELD} one is released instead)
+     */
+    public PaymentHold refund(final Instant now) {
+        return this.advanceTo(PaymentHoldStatus.REFUNDED, now);
     }
 
     private PaymentHold advanceTo(final PaymentHoldStatus target,

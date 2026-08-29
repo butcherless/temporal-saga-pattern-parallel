@@ -156,4 +156,49 @@ class PaymentHoldProgressionServiceTest {
                 .expectError(IllegalPaymentHoldTransitionException.class)
                 .verify();
     }
+
+    @Test
+    void refundPaymentAdvancesFromCapturedToRefunded() {
+        final UUID sagaId = UUID.randomUUID();
+        final PaymentHold captured = PaymentHold.hold(sagaId, TOKEN, NOW).capture(NOW);
+        when(this.paymentHoldRepository.findById(sagaId)).thenReturn(Mono.just(captured));
+
+        StepVerifier.create(this.service.refundPayment(new RefundPaymentRequest(sagaId, NOW)))
+                .assertNext(hold -> assertThat(hold.status()).isEqualTo(PaymentHoldStatus.REFUNDED))
+                .verifyComplete();
+    }
+
+    @Test
+    void refundPaymentIsIdempotentWhenAlreadyRefunded() {
+        final UUID sagaId = UUID.randomUUID();
+        final PaymentHold refunded = PaymentHold.hold(sagaId, TOKEN, NOW).capture(NOW).refund(NOW);
+        when(this.paymentHoldRepository.findById(sagaId)).thenReturn(Mono.just(refunded));
+
+        StepVerifier.create(this.service.refundPayment(new RefundPaymentRequest(sagaId, NOW)))
+                .assertNext(hold -> assertThat(hold.status()).isEqualTo(PaymentHoldStatus.REFUNDED))
+                .verifyComplete();
+
+        verify(this.paymentHoldRepository, never()).save(any());
+    }
+
+    @Test
+    void refundPaymentFailsWhenNotFound() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.paymentHoldRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.refundPayment(new RefundPaymentRequest(sagaId, NOW)))
+                .expectError(IllegalStateException.class)
+                .verify();
+    }
+
+    @Test
+    void refundPaymentThrowsWhenTheHoldIsStillHeldSinceAnUncapturedHoldIsReleasedNotRefunded() {
+        final UUID sagaId = UUID.randomUUID();
+        final PaymentHold held = PaymentHold.hold(sagaId, TOKEN, NOW);
+        when(this.paymentHoldRepository.findById(sagaId)).thenReturn(Mono.just(held));
+
+        StepVerifier.create(this.service.refundPayment(new RefundPaymentRequest(sagaId, NOW)))
+                .expectError(IllegalPaymentHoldTransitionException.class)
+                .verify();
+    }
 }
