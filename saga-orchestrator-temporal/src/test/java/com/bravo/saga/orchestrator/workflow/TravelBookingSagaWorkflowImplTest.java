@@ -174,6 +174,32 @@ class TravelBookingSagaWorkflowImplTest {
                 "cancelCarReservation(%s)".formatted(sagaId));
     }
 
+    /**
+     * E3 (use-case-errors.md): a confirmation fails after the payment hold. The compensation owed
+     * is a hold <em>release</em> (capture hasn't run, so no refund) — and nothing else: leg
+     * reservations are left as-is (a confirmed leg is terminal; a reserved-not-confirmed leg is a
+     * valid Failed end state), so no {@code cancel*Reservation} is issued, and the saga does not
+     * proceed to capture or booking confirmation.
+     */
+    @Test
+    void processReleasesTheHoldWhenAConfirmationFailsAfterTheHold() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBookingSagaInput input = defaultInput(sagaId);
+
+        final TravelBookingSagaWorkflow workflow = this.newWorkflowStub(FakeActivities.builder(this.callLog).failConfirmHotelPermanently().build());
+
+        assertThatThrownBy(() -> workflow.process(input)).isInstanceOf(WorkflowFailedException.class);
+
+        assertThat(this.callLog)
+                .contains("holdPayment(%s)".formatted(sagaId),
+                        "confirmHotel(%s)".formatted(sagaId),
+                        "releasePaymentHold(%s)".formatted(sagaId))
+                .doesNotContain("capturePayment(%s)".formatted(sagaId),
+                        "confirmBooking(%s)".formatted(sagaId))
+                .noneSatisfy(call -> assertThat(call).startsWith("cancel"));
+        this.assertBefore(sagaId, "holdPayment", "releasePaymentHold");
+    }
+
     private void assertBefore(final UUID sagaId,
             final String earlierCallPrefix,
             final String laterCallPrefix) {
@@ -216,6 +242,7 @@ class TravelBookingSagaWorkflowImplTest {
         private final boolean reserveHotelFailsPermanently;
         private final boolean reserveCarFailsPermanently;
         private final boolean holdPaymentFailsPermanently;
+        private final boolean confirmHotelFailsPermanently;
 
         private FakeActivities(final Builder builder) {
             this.callLog = builder.callLog;
@@ -223,6 +250,7 @@ class TravelBookingSagaWorkflowImplTest {
             this.reserveHotelFailsPermanently = builder.reserveHotelFailsPermanently;
             this.reserveCarFailsPermanently = builder.reserveCarFailsPermanently;
             this.holdPaymentFailsPermanently = builder.holdPaymentFailsPermanently;
+            this.confirmHotelFailsPermanently = builder.confirmHotelFailsPermanently;
         }
 
         static Builder builder(final List<String> callLog) {
@@ -260,6 +288,9 @@ class TravelBookingSagaWorkflowImplTest {
         @Override
         public void confirmHotel(final UUID sagaId) {
             this.callLog.add("confirmHotel(%s)".formatted(sagaId));
+            if (this.confirmHotelFailsPermanently) {
+                throw ApplicationFailure.newNonRetryableFailure("Simulated permanent hotel confirmation failure", "PermanentSagaException");
+            }
         }
 
         @Override
@@ -316,6 +347,7 @@ class TravelBookingSagaWorkflowImplTest {
             private boolean reserveHotelFailsPermanently;
             private boolean reserveCarFailsPermanently;
             private boolean holdPaymentFailsPermanently;
+            private boolean confirmHotelFailsPermanently;
 
             private Builder(final List<String> callLog) {
                 this.callLog = callLog;
@@ -338,6 +370,11 @@ class TravelBookingSagaWorkflowImplTest {
 
             Builder failHoldPaymentPermanently() {
                 this.holdPaymentFailsPermanently = true;
+                return this;
+            }
+
+            Builder failConfirmHotelPermanently() {
+                this.confirmHotelFailsPermanently = true;
                 return this;
             }
 

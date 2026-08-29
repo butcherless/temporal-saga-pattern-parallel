@@ -27,11 +27,13 @@ import java.util.function.Supplier;
  *
  * <p><b>Compensation status</b> (docs/travel-booking/use-case-errors.md):
  * <ul>
- *     <li>E1 (a reservation fails before the hold) and E2 (the hold itself fails) are implemented
- *     below — both resolved scenarios, per that doc.</li>
- *     <li>E3 (a confirmation fails after the hold) is <b>not</b> implemented — still PENDING in
- *     that doc. A confirmation failure below simply fails the Workflow Execution without attempting
- *     any compensation, which is honest about what's unresolved rather than guessing at a mechanism.</li>
+ *     <li>E1 (a reservation fails before the hold), E2 (the hold itself fails), and E3 (a
+ *     confirmation fails after the hold) are all implemented below.</li>
+ *     <li>E3's compensation is a payment <b>hold release</b> only — capture hasn't happened, so no
+ *     refund is owed (use-case-errors.md, E3). Leg reservations are left as-is: a {@code CONFIRMED}
+ *     leg cannot be un-confirmed ({@code ReservationStatus.CONFIRMED} is terminal; the leg
+ *     services' cancel endpoint rejects it), and a leg that only reserved is a valid Failed-booking
+ *     end state.</li>
  *     <li>E4 (capture fails / refund) is out of scope entirely — no refund exists yet.</li>
  *     <li>The {@link #cancel()} signal is received but not yet acted upon — see its javadoc on
  *     {@link TravelBookingSagaWorkflow}.</li>
@@ -82,12 +84,20 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
             throw holdFailed;
         }
 
-        // Stage 2 — parallel confirmations. A failure here is E3, still PENDING (this class's own
-        // javadoc): deliberately not compensated, just propagated.
+        // Stage 2 — parallel confirmations (main use case, step 5).
         final Promise<Void> flightConfirmed = Async.procedure(this.flightActivities::confirmFlight, input.sagaId());
         final Promise<Void> hotelConfirmed = Async.procedure(this.hotelActivities::confirmHotel, input.sagaId());
         final Promise<Void> carConfirmed = Async.procedure(this.carActivities::confirmCar, input.sagaId());
-        Promise.allOf(flightConfirmed, hotelConfirmed, carConfirmed).get();
+        try {
+            Promise.allOf(flightConfirmed, hotelConfirmed, carConfirmed).get();
+        } catch (final RuntimeException confirmationFailed) {
+            // E3 (use-case-errors.md): a confirmation failed after the hold. Money has moved but not
+            // been captured, so the compensation owed is a hold *release*, not a refund. Leg
+            // reservations are left as-is (see this class's javadoc): a confirmed leg is terminal
+            // and cannot be unwound, and a reserved-not-confirmed leg is a valid Failed end state.
+            this.paymentActivities.releasePaymentHold(input.sagaId());
+            throw confirmationFailed;
+        }
 
         this.paymentActivities.capturePayment(input.sagaId());
         this.bookingActivities.confirmBooking(input.sagaId());

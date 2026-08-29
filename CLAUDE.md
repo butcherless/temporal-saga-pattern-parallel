@@ -18,7 +18,7 @@ file only covers what you need to operate/build it day to day, and what's implem
 - [`business-definitions.md`](./docs/travel-booking/business-definitions.md) — canonical vocabulary (actors, identifiers, money/pricing, status lifecycle).
 - [`use-case-main.md`](./docs/travel-booking/use-case-main.md) — the main success scenario, step by step.
 - [`use-case-alternatives.md`](./docs/travel-booking/use-case-alternatives.md) — non-error flows. A1 (idempotent duplicate) and A2 (status query) are both implemented; the rest of the doc is still **PENDING** reconciliation with the current terminology/step numbering.
-- [`use-case-errors.md`](./docs/travel-booking/use-case-errors.md) — failure/compensation scenarios E1-E4. **PENDING** on the same grounds; E1/E2 are resolved regardless (implemented below), E3/E4 are open regardless of the reconciliation.
+- [`use-case-errors.md`](./docs/travel-booking/use-case-errors.md) — failure/compensation scenarios E1-E4. **PENDING** terminology reconciliation on the same grounds; E1/E2/E3 are resolved and implemented below, E4 (refund) remains open.
 - [`controller-layer-plan.md`](./docs/travel-booking/controller-layer-plan.md) — the REST contract for `booking-service`'s client-facing operations (buy, cancel, status query).
 
 ## Current state — what's real vs. scaffolded
@@ -112,9 +112,12 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   /payment-holds`, `/{sagaId}/capture`, `/{sagaId}/release`), same DTO/config/exception-handler
   shape as the three reservation services above (`IllegalPaymentHoldTransitionException` → 409).
 - `saga-orchestrator-temporal` — `TravelBookingSagaWorkflowImpl` implements the happy path
-  (use-case-main.md steps 1-8), including E1/E2 compensation (use-case-errors.md) via manual
+  (use-case-main.md steps 1-8) plus E1/E2/E3 compensation (use-case-errors.md) via manual
   per-`Promise` inspection rather than `io.temporal.workflow.Saga` (that class's LIFO stack doesn't
-  fit a parallel fan-out — see that Workflow class's own javadoc). Its five Activity
+  fit a parallel fan-out — see that Workflow class's own javadoc). E3 (a confirmation fails after
+  the hold) compensates with a payment hold *release* only — no refund (capture hasn't run) and no
+  reservation unwinding (a `CONFIRMED` leg is terminal; a reserved-not-confirmed leg is a valid
+  Failed end state). Its five Activity
   **implementations** (`FlightActivitiesImpl`/`HotelActivitiesImpl`/`CarActivitiesImpl`/
   `PaymentActivitiesImpl`/`BookingActivitiesImpl`) are plain `@Slf4j`/`@Component` beans, each
   making one blocking `WebClient` call per method into the matching business service's `web` layer
@@ -140,7 +143,8 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
 **Open items (not blockers, but worth revisiting):**
 - `TravelBookingSagaWorkflow#cancel()` — the signal exists and `booking-service` sends it, but
   `TravelBookingSagaWorkflowImpl` receives it into an unread field; nothing compensates an in-flight
-  saga on cancellation yet. Depends on E1/E2/E3 all being resolved with a consistent mechanism first.
+  saga on cancellation yet. E1/E2/E3 compensation mechanics now all exist to build on; what's still
+  missing is checking the signal flag at the fan-out boundaries and driving the matching path.
 - No retry/non-retryable-failure classification in the five `*ActivitiesImpl` classes yet (unlike
   `temporal-saga-pattern`'s own, which map a 422 business rejection to a non-retryable
   `ApplicationFailure`) — this repo's leg/payment services signal illegal transitions as 409, not
