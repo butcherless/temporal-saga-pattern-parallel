@@ -1,26 +1,30 @@
 # Travel Booking — Controller Layer Plan
 
-> REST contract for the two operations a client can call directly: buy a vacation package, and cancel one before it completes. Builds on [`business-definitions.md`](./business-definitions.md) and [`use-case-main.md`](./use-case-main.md) — terms and identifiers from those docs (`sagaId`, `businessKey`, offer reference, payment authorization token, EUR) are used here without redefinition. Owning service: **`booking-service`**, the same aggregate-owner role established for the sibling `temporal-saga-pattern`/`temporal-saga-pattern-parallel` repos. Status: **implemented** in `booking-service`'s `web` package (`BookingController` plus a third internal operation — see Scope, below); open items (§ below) are refinements, not blockers.
+> REST contract for the operations a client can call directly: buy a vacation package, cancel one before it completes, and query its status. Builds on [`business-definitions.md`](./business-definitions.md) and [`use-case-main.md`](./use-case-main.md) — terms and identifiers from those docs (`sagaId`, `businessKey`, offer reference, payment authorization token, EUR) are used here without redefinition. Owning service: **`booking-service`**, the same aggregate-owner role established for the sibling `temporal-saga-pattern`/`temporal-saga-pattern-parallel` repos. Status: **implemented** in `booking-service`'s `web` package (`BookingController` plus a fourth internal operation — see Scope, below); open items (§ below) are refinements, not blockers.
 
 ## Scope
 
-Two client-facing operations:
+Three client-facing operations:
 
 | # | Operation | Method & path |
 |---|---|---|
 | 1 | Buy the vacation package | `POST /travel-bookings` |
 | 2 | Cancel the buy | `POST /travel-bookings/{sagaId}/cancel` |
+| 3 | Query booking status | `GET /travel-bookings/{sagaId}` |
 
-As built, `booking-service` also exposes a third, **internal-only** operation not part of this
-plan's original 2-operation scope: `POST /travel-bookings/{sagaId}/confirm`, called by the saga
+Operation 3 was added after the fact per [alternatives](./use-case-alternatives.md) A2 — it was
+originally out of scope for this plan's "two requested operations".
+
+As built, `booking-service` also exposes a fourth, **internal-only** operation not part of this
+plan's original scope: `POST /travel-bookings/{sagaId}/confirm`, called by the saga
 Workflow's `BookingActivities` once payment is captured (main use case, step 8) — added because the
 happy path has nothing else to call to reach `Confirmed`. Not documented in detail below since no
 client ever calls it directly; see `BookingController` itself for its contract.
 
 Explicitly out of scope for this plan (not modeled below):
 - **Refund.** Cancellation is only permitted before the booking reaches `Confirmed` (payment captured). Cancelling an already-`Confirmed` booking would require a refund, which doesn't exist yet — see [error scenarios](./use-case-errors.md) E4 (pending) and §"Cancel operation" below.
-- **Status query** (`GET /travel-bookings/{sagaId}`) — not one of the two requested operations; tracked separately as [alternatives](./use-case-alternatives.md) A2 (pending, not yet decided whether it applies here).
-- Endpoints on the leg services (`flight-service`, `hotel-service`, `car-service`) or `payment-service` — both operations here only ever call into `booking-service`, which drives the underlying saga; the client never calls a leg service directly.
+- **Live per-leg progress in the status query.** Operation 3 reports only the coarse booking status, not which legs are reserved/confirmed so far — see [alternatives](./use-case-alternatives.md) A2 for why.
+- Endpoints on the leg services (`flight-service`, `hotel-service`, `car-service`) or `payment-service` — every operation here only ever calls into `booking-service`, which drives the underlying saga; the client never calls a leg service directly.
 
 ## Conventions used below
 
@@ -214,10 +218,49 @@ No required body. Optional free-text reason, for audit only — not used in any 
 
 ---
 
+## Operation 3 — Query booking status
+
+`GET /travel-bookings/{sagaId}`
+
+Implements [alternatives](./use-case-alternatives.md) A2. Read-only: returns the `travel_booking`
+row's current status without touching the running saga. Reports the **coarse booking status only**
+(`PENDING`, `CONFIRMED`, `CANCELLED`, `FAILED`), not per-leg progress — same deliberate scoping as
+A2 (no Workflow `@QueryMethod`, no fan-out to the leg services).
+
+### Request
+
+No body. `sagaId` (also the booking's id) in the path.
+
+### Response — booking found
+
+`200 OK` — same `{sagaId, status}` shape as Operations 1 and 2.
+
+```json
+{
+  "sagaId": "6a9c9e2a-1b3d-4c9a-8b7e-2f1a9c3d5e6f",
+  "status": "PENDING"
+}
+```
+
+### Error responses
+
+`404 Not Found` — no booking exists for this `sagaId`.
+
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "No booking found for sagaId 6a9c9e2a-1b3d-4c9a-8b7e-2f1a9c3d5e6f"
+}
+```
+
+---
+
 ## Open items
 
 1. **E3 dependency.** Cancelling during `Confirmations pending` needs error scenario E3 (pending, [errors doc](./use-case-errors.md)) resolved first — this plan inherits that gap rather than closing it. Reflected in code: `TravelBookingSagaWorkflowImpl` implements E1/E2 compensation but deliberately not E3.
 2. **Refund.** Deliberately excluded (Scope, above); revisit once E4 is resolved.
-3. **Status query.** No `GET /travel-bookings/{sagaId}` in this plan; both operations above return only the status known at the moment of the call. Whether a query endpoint is needed is tracked in [alternatives](./use-case-alternatives.md) A2, still pending.
+3. **Status query granularity.** Operation 3 (`GET /travel-bookings/{sagaId}`) is built but reports only the coarse booking status. Surfacing live per-leg progress ("flight reserved, hotel reserved, car pending") would need a Temporal `@QueryMethod` on the Workflow plus the Workflow tracking that sub-state — deferred (see [alternatives](./use-case-alternatives.md) A2), not currently a product requirement.
 4. **`FAILED` vs. `CANCELLED` conflict handling on cancel.** Treating a cancel-after-`Failed` as `409` rather than an idempotent `200` is a judgment call made in this plan and now built as specified (`BookingAlreadyFailedException` → 409) — still worth confirming, since it's not dictated by any existing doc.
 5. **`ProblemDetail` drops `sagaId` and the machine-readable error code this plan originally specified.** Adopting Spring's standard `ProblemDetail` (Conventions, above) for platform consistency means every error response lost two things a caller might reasonably want: a stable code to switch on without parsing `detail` text, and `sagaId` echoed back in the body rather than only known from the request path. Both are addable as `ProblemDetail` extension properties (`setProperty("sagaId", ...)`, `setProperty("errorCode", ...)`) without abandoning RFC 9457 — not done yet, since none of `booking-service`'s current domain exceptions expose `sagaId` via a getter for a shared handler to read.

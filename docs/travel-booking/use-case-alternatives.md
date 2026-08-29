@@ -15,13 +15,22 @@
 
 **Grounding:** direct analogue of `temporal-saga-pattern`'s implemented "idempotent duplicate order submission" reference scenario (see that repo's `CLAUDE.md`), and consistent with the idempotency-by-`businessKey` discipline both sibling repos already commit to.
 
-## A2 — Status query while the booking is in flight
+## A2 — Status query
 
-**Trigger:** a client asks for the current status of a booking whose `sagaId`/`businessKey` is still **Pending**.
+**Trigger:** a client asks for the current status of a booking by its `sagaId` (in any state — `Pending`, `Confirmed`, `Cancelled`, or `Failed`).
 
-**Flow:** the orchestrator reports the booking's current progress (e.g. which legs are reserved/confirmed so far) without altering the saga.
+**Flow:** `booking-service` returns the `travel_booking` row's own current status, read-only, without touching the running saga.
 
-**Status:** **not yet decided whether this applies to the travel-booking case.** Flagged here only because `temporal-saga-pattern` implements an analogous query (`GET /orders/{sagaId}` via a Temporal `@QueryMethod`, per that repo's `CLAUDE.md`) — worth a deliberate yes/no rather than a silent gap, not a committed requirement yet.
+**Status:** **implemented** — `GET /travel-bookings/{sagaId}` on `BookingController`, backed by
+`TravelBookingProgressionService#findBooking`. Deliberate scoping decision: it reports only the
+**coarse booking status** (`PENDING`/`CONFIRMED`/`CANCELLED`/`FAILED`, per
+[definitions §7](./business-definitions.md#7-booking-status--lifecycle)), the same
+`{sagaId, status}` shape the buy and cancel operations already return. It does **not** surface
+live per-leg progress ("which legs are reserved/confirmed so far") — that would need either a
+Temporal `@QueryMethod` on the Workflow (as `temporal-saga-pattern`'s `GET /orders/{sagaId}` does)
+or `booking-service` fanning out to the leg services, neither of which is warranted while the
+Workflow tracks no queryable sub-state. `404` (RFC 9457 `ProblemDetail`) when no booking exists
+for the `sagaId`. See [`controller-layer-plan.md`](./controller-layer-plan.md) Operation 3.
 
 ## Note on scope
 

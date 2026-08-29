@@ -27,8 +27,9 @@ import static org.mockito.Mockito.when;
  * {@link BookingCancellationHandler}, and {@link TravelBookingProgressionService} are mocked, and
  * {@link WebTestClient} is bound directly to a manually-constructed controller instance rather than
  * a full Spring context. Same shape as {@code temporal-saga-pattern}'s own {@code OrderControllerTest}.
- * Covers every HTTP status code the three operations declare via {@code @ApiResponse}
- * (docs/travel-booking/controller-layer-plan.md): 202, 200, 400, 409, 404.
+ * Covers every HTTP status code the operations declare via {@code @ApiResponse}
+ * (docs/travel-booking/controller-layer-plan.md; status query per use-case-alternatives.md A2):
+ * 202, 200, 400, 409, 404.
  */
 @ExtendWith(MockitoExtension.class)
 class BookingControllerTest {
@@ -199,6 +200,32 @@ class BookingControllerTest {
                 .expectBody()
                 .jsonPath("$.sagaId").isEqualTo(sagaId.toString())
                 .jsonPath("$.status").isEqualTo(TravelBookingStatus.CONFIRMED.name());
+    }
+
+    // ---- GET /travel-bookings/{sagaId} (status query — use-case-alternatives.md A2) ----
+
+    @Test
+    void getBookingReturns200WithTheCurrentStatus() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBooking pending = TravelBooking.create(sagaId, "biz-2026-08-13-0001", "agency-042", Instant.now());
+        when(this.travelBookingProgressionService.findBooking(sagaId)).thenReturn(Mono.just(pending));
+
+        this.client.get().uri("/travel-bookings/{sagaId}", sagaId)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.sagaId").isEqualTo(sagaId.toString())
+                .jsonPath("$.status").isEqualTo(TravelBookingStatus.PENDING.name());
+    }
+
+    @Test
+    void getBookingReturns404WhenNoBookingExistsForTheSagaId() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.travelBookingProgressionService.findBooking(sagaId)).thenReturn(Mono.error(new BookingNotFoundException(sagaId)));
+
+        final ResponseSpec response = this.client.get().uri("/travel-bookings/{sagaId}", sagaId).exchange();
+
+        assertProblemDetail(response, 404, "No booking found for sagaId " + sagaId);
     }
 
     private static String validBuyRequestJson(final String businessKey) {

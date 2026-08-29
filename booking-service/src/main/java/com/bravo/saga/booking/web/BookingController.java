@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,14 +27,15 @@ import java.util.UUID;
 
 /**
  * REST entry points for the travel-booking lifecycle — docs/travel-booking/controller-layer-plan.md.
- * Two client-facing operations (buy, cancel), plus one internal operation ({@code /confirm}) called
- * by the saga Workflow's {@code BookingActivities} once payment is captured (main use case, step 8) —
- * not part of the controller-layer plan's original 2-operation scope, added here because the happy
- * path has nothing else to call to reach {@code Confirmed}.
+ * Three client-facing operations (buy, cancel, query status — the last per
+ * docs/travel-booking/use-case-alternatives.md A2), plus one internal operation ({@code /confirm})
+ * called by the saga Workflow's {@code BookingActivities} once payment is captured (main use case,
+ * step 8) — not part of the controller-layer plan's original 2-operation scope, added here because
+ * the happy path has nothing else to call to reach {@code Confirmed}.
  */
 @RestController
 @RequestMapping("/travel-bookings")
-@Tag(name = "Travel bookings", description = "Travel booking lifecycle — buy starts the saga, cancel signals it, confirm is invoked by it")
+@Tag(name = "Travel bookings", description = "Travel booking lifecycle — buy starts the saga, cancel signals it, GET reports status, confirm is invoked by it")
 @Slf4j
 public class BookingController {
 
@@ -86,6 +88,22 @@ public class BookingController {
         return this.bookingCancellationHandler.cancelBooking(sagaId, effectiveRequest)
                 .map(response -> ResponseEntity.status(response.status() == TravelBookingStatus.CANCELLED ? HttpStatus.OK : HttpStatus.ACCEPTED)
                         .body(response));
+    }
+
+    @GetMapping("/{sagaId}")
+    @Operation(
+            summary = "Query booking status",
+            description = "Returns the booking's current coarse status (PENDING/CONFIRMED/CANCELLED/FAILED). "
+                    + "Read-only — does not alter the saga. docs/travel-booking/use-case-alternatives.md A2.")
+    @ApiResponse(responseCode = "200", description = "The booking's current status")
+    @ApiResponse(responseCode = "404", description = "No booking with this sagaId",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    public Mono<ResponseEntity<BookingStatusResponseBody>> getBooking(
+            @PathVariable("sagaId") @Parameter(description = "The saga id, also the booking's id") final UUID sagaId) {
+        log.debug("getBooking - {}", sagaId);
+
+        return this.travelBookingProgressionService.findBooking(sagaId)
+                .map(booking -> ResponseEntity.ok(new BookingStatusResponseBody(booking.id(), booking.status())));
     }
 
     @PostMapping("/{sagaId}/confirm")

@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Persistence-level transitions for {@link TravelBooking} — idempotency-by-{@code businessKey}/
@@ -23,6 +24,18 @@ public class TravelBookingProgressionService {
 
     public TravelBookingProgressionService(final TravelBookingRepository travelBookingRepository) {
         this.travelBookingRepository = Objects.requireNonNull(travelBookingRepository, "travelBookingRepository must not be null");
+    }
+
+    /**
+     * Reads a booking's current state — docs/travel-booking/use-case-alternatives.md A2. Read-only,
+     * no interaction with the running saga: it returns the {@code travel_booking} row's own coarse
+     * status ({@code PENDING}/{@code CONFIRMED}/{@code CANCELLED}/{@code FAILED}), not live per-leg
+     * progress. Fails with {@link BookingNotFoundException} (mapped to 404) if no row exists.
+     */
+    public Mono<TravelBooking> findBooking(final UUID sagaId) {
+        log.debug("findBooking - {}", sagaId);
+        return this.travelBookingRepository.findById(sagaId)
+                .switchIfEmpty(Mono.error(new BookingNotFoundException(sagaId)));
     }
 
     /** Idempotent by {@code businessKey} (main use case, Idempotency table): a duplicate call returns the existing row unchanged. */

@@ -29,7 +29,8 @@ import static org.mockito.Mockito.when;
  * Adapter-free unit test for {@link TravelBookingProgressionService} — {@link TravelBookingRepository}
  * is mocked. {@code createBooking}/{@code confirmBooking} back main use case steps 1 and 8
  * (docs/travel-booking/use-case-main.md); {@code validateCancellable} backs the cancel operation
- * (docs/travel-booking/controller-layer-plan.md, Operation 2).
+ * and {@code findBooking} the status query (docs/travel-booking/controller-layer-plan.md,
+ * Operation 2; use-case-alternatives.md A2).
  */
 @ExtendWith(MockitoExtension.class)
 class TravelBookingProgressionServiceTest {
@@ -47,6 +48,29 @@ class TravelBookingProgressionServiceTest {
     void setUp() {
         this.service = new TravelBookingProgressionService(this.travelBookingRepository);
         lenient().when(this.travelBookingRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+    }
+
+    @Test
+    void findBookingReturnsTheBookingsCurrentState() {
+        final UUID sagaId = UUID.randomUUID();
+        final TravelBooking existing = withStatus(sagaId, TravelBookingStatus.CONFIRMED);
+        when(this.travelBookingRepository.findById(sagaId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(this.service.findBooking(sagaId))
+                .assertNext(booking -> assertThat(booking).isEqualTo(existing))
+                .verifyComplete();
+
+        verify(this.travelBookingRepository, never()).save(any());
+    }
+
+    @Test
+    void findBookingFailsWhenNoBookingExistsForTheSagaId() {
+        final UUID sagaId = UUID.randomUUID();
+        when(this.travelBookingRepository.findById(sagaId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.service.findBooking(sagaId))
+                .expectError(BookingNotFoundException.class)
+                .verify();
     }
 
     @Test

@@ -17,9 +17,9 @@ file only covers what you need to operate/build it day to day, and what's implem
 
 - [`business-definitions.md`](./docs/travel-booking/business-definitions.md) — canonical vocabulary (actors, identifiers, money/pricing, status lifecycle).
 - [`use-case-main.md`](./docs/travel-booking/use-case-main.md) — the main success scenario, step by step.
-- [`use-case-alternatives.md`](./docs/travel-booking/use-case-alternatives.md) — non-error flows. **PENDING**, not yet reconciled with the current terminology/step numbering.
+- [`use-case-alternatives.md`](./docs/travel-booking/use-case-alternatives.md) — non-error flows. A1 (idempotent duplicate) and A2 (status query) are both implemented; the rest of the doc is still **PENDING** reconciliation with the current terminology/step numbering.
 - [`use-case-errors.md`](./docs/travel-booking/use-case-errors.md) — failure/compensation scenarios E1-E4. **PENDING** on the same grounds; E1/E2 are resolved regardless (implemented below), E3/E4 are open regardless of the reconciliation.
-- [`controller-layer-plan.md`](./docs/travel-booking/controller-layer-plan.md) — the REST contract for `booking-service`'s two client-facing operations.
+- [`controller-layer-plan.md`](./docs/travel-booking/controller-layer-plan.md) — the REST contract for `booking-service`'s client-facing operations (buy, cancel, status query).
 
 ## Current state — what's real vs. scaffolded
 
@@ -59,10 +59,12 @@ database, proven by `platform-test`'s `TravelBookingEndToEndSagaIT` (see below).
   exercised through the three leg services' tests (unit + `platform-test`'s end-to-end IT), same as
   this repo's `domain` classes.
 - `booking-service` — fully implemented per `docs/travel-booking/controller-layer-plan.md`: `POST
-  /travel-bookings` (buy, starts the saga Workflow) and `POST /travel-bookings/{sagaId}/cancel`
-  (signals it), plus a third, internal-only `POST /travel-bookings/{sagaId}/confirm` (called by the
-  orchestrator's `BookingActivities`, added here because the happy path needs it — outside that
-  doc's original 2-operation scope, worth folding back into it later).
+  /travel-bookings` (buy, starts the saga Workflow), `POST /travel-bookings/{sagaId}/cancel`
+  (signals it), and `GET /travel-bookings/{sagaId}` (status query — `use-case-alternatives.md` A2,
+  read-only; reports the coarse booking status only, not per-leg progress), plus a fourth,
+  internal-only `POST /travel-bookings/{sagaId}/confirm` (called by the orchestrator's
+  `BookingActivities`, added here because the happy path needs it — outside that doc's original
+  2-operation scope).
 - `flight-service`, `hotel-service`, `car-service` — `domain`/`persistence`/`service` layers: a
   `{Flight,Hotel,Car}Reservation` aggregate (record, `implements LegReservation<self>`; the
   status enum, illegal-transition exception, and reserve/confirm/cancel behaviour all live in
@@ -370,5 +372,6 @@ Everything listed under "Open items" above, plus (mirroring `temporal-saga-patte
 - A shared library between this repo and `temporal-saga-pattern` — same "not yet" as that repo's own
   relationship to `saga-pattern-poc`.
 - Refund (`use-case-errors.md`, E4) and everything downstream of it.
-- Status query (`GET /travel-bookings/{sagaId}`) — `use-case-alternatives.md` A2, not yet decided
-  whether it's even in scope.
+- Live per-leg progress in the status query — `GET /travel-bookings/{sagaId}` is implemented
+  (`use-case-alternatives.md` A2) but reports only the coarse booking status; surfacing which legs
+  are reserved/confirmed so far would need a Workflow `@QueryMethod` and is deferred.

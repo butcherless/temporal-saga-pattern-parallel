@@ -50,7 +50,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code car_db.car_reservation.status = CONFIRMED}, and
  * {@code payment_db.payment_hold.status = CAPTURED} — proof that every layer, from the controller
  * down through the service/persistence layers of all five business services, actually reads and
- * writes real rows for the main use case (docs/travel-booking/use-case-main.md, steps 1-8).
+ * writes real rows for the main use case (docs/travel-booking/use-case-main.md, steps 1-8). Also
+ * hits the A2 status-query endpoint ({@code GET /travel-bookings/{sagaId}}) over real HTTP once the
+ * saga has completed.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class TravelBookingEndToEndSagaIT {
@@ -124,6 +126,7 @@ class TravelBookingEndToEndSagaIT {
         assertReservationStatus("hotel_db", "hotel_reservation", sagaId, "CONFIRMED");
         assertReservationStatus("car_db", "car_reservation", sagaId, "CONFIRMED");
         assertPaymentHoldStatus(sagaId, "CAPTURED");
+        assertBookingStatusViaHttp(sagaId, "CONFIRMED");
     }
 
     /**
@@ -284,6 +287,23 @@ class TravelBookingEndToEndSagaIT {
         final String status = queryOne("payment_db", "SELECT status FROM payment_hold WHERE id = ?", sagaId,
                 resultSet -> resultSet.getString("status"));
         assertThat(status).isEqualTo(expectedStatus);
+    }
+
+    /**
+     * Exercises the A2 status-query endpoint (GET /travel-bookings/{sagaId}) over real HTTP —
+     * complements {@code awaitBookingStatus}, which reads the same status straight from Postgres.
+     */
+    private static void assertBookingStatusViaHttp(final UUID sagaId,
+            final String expectedStatus) throws Exception {
+        final HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(
+                        "http://localhost:%d/travel-bookings/%s".formatted(BOOKING_SERVICE_PORT, sagaId))).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body())
+                .contains("\"sagaId\":\"%s\"".formatted(sagaId))
+                .contains("\"status\":\"%s\"".formatted(expectedStatus));
     }
 
     private static void awaitBookingStatus(final UUID sagaId,
