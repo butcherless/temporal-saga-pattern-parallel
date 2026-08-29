@@ -30,6 +30,9 @@ post_travel_booking
 log "Waiting for the booking to reach CONFIRMED..."
 wait_booking_status "$SAGA_ID" CONFIRMED
 
+log "Querying the A2 status endpoint over HTTP..."
+assert_booking_status_via_http "$SAGA_ID" CONFIRMED
+
 log "Verifying each business service's final state..."
 FLIGHT_STATUS=$(psql_query flight_db "SELECT status FROM flight_reservation WHERE id = '$SAGA_ID'")
 assert_status "flight_reservation.status" "$FLIGHT_STATUS" "CONFIRMED"

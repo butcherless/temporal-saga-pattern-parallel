@@ -349,8 +349,9 @@ real saga end to end. Two automated e2e suites do the same thing without manual 
 Docker Compose needed) and two `platform-test/scripts/e2e-*.sh` scripts (plain bash + `curl`
 against the real `docker-compose.yml` stack, `bootstrap_environment` + a `post_travel_booking*`
 variant + `wait_booking_status` from `lib/e2e-common.sh`, then asserting every leg's reservation
-status and the payment hold's status directly via `psql`) — mirroring `temporal-saga-pattern`'s own
-`e2e-happy-path.sh`:
+status and the payment hold's status directly via `psql`, plus one `assert_booking_status_via_http`
+hitting the A2 `GET /travel-bookings/{sagaId}` endpoint over `curl`) — mirroring
+`temporal-saga-pattern`'s own `e2e-happy-path.sh`:
 
 - `e2e-happy-path.sh` — the main use case, no faults, `post_travel_booking`.
 - `e2e-temporary-fault.sh` — the flight leg's first `reserveFlight` call fails once (via the

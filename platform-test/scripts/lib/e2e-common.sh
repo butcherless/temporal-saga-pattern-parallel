@@ -176,6 +176,20 @@ wait_booking_status() {
     done
 }
 
+# Exercises the A2 status-query endpoint (GET /travel-bookings/{sagaId}) over HTTP, asserting it
+# reports $expected — the same value wait_booking_status just read straight from Postgres, now
+# proven to also come back correctly through booking-service's own read path.
+assert_booking_status_via_http() {
+    local saga_id=$1 expected=$2 response http_code body status
+    response=$(curl -sS -w '\n%{http_code}' "http://localhost:$(port_for_module booking-service)/travel-bookings/$saga_id")
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | sed '$d')
+    [[ "$http_code" == "200" ]] || fail "GET /travel-bookings/$saga_id returned $http_code, expected 200 (body: $body)"
+    status=$(echo "$body" | grep -oE '"status"[[:space:]]*:[[:space:]]*"[^"]+"' | grep -oE '"[A-Z]+"$' | tr -d '"')
+    [[ "$status" == "$expected" ]] || fail "GET /travel-bookings/$saga_id reported status=$status, expected $expected (body: $body)"
+    log "GET /travel-bookings/$saga_id => 200, status=$status"
+}
+
 # Recreates Postgres+Temporal from scratch, rebuilds the six module jars (saga-common plus the
 # five business services and the orchestrator), starts the five business services then the
 # Temporal Worker last, and waits for all six to report healthy. Identical across every scenario

@@ -33,6 +33,9 @@ post_travel_booking_with_flight_fault
 log "Waiting for the booking to reach CONFIRMED (despite the flight leg's first reserve attempt failing)..."
 wait_booking_status "$SAGA_ID" CONFIRMED
 
+log "Querying the A2 status endpoint over HTTP..."
+assert_booking_status_via_http "$SAGA_ID" CONFIRMED
+
 log "Verifying the flight-service log actually recorded the simulated fault and a retry..."
 FLIGHT_LOG="$LOG_DIR/flight-service.log"
 grep -q "simulating a one-time transient fault for sagaId=$SAGA_ID" "$FLIGHT_LOG" \
