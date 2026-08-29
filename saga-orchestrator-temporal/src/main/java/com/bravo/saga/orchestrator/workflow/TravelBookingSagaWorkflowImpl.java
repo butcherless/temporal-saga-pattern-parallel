@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * The travel-booking saga's happy path (docs/travel-booking/use-case-main.md, steps 1-8): two
@@ -68,14 +69,16 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
     @Override
     public void process(final TravelBookingSagaInput input) {
         log.debug("process - {}", input);
-        this.reserveAllLegsOrCompensate(input);
+
+        final List<ReservationLeg> legs = this.startReservations(input);
+        awaitReservationsOrCompensate(legs);
 
         try {
             this.paymentActivities.holdPayment(input.sagaId(), input.paymentAuthorizationToken());
         } catch (final RuntimeException holdFailed) {
             // E2: the hold is only attempted once all three reservations are already known to have
-            // succeeded — compensation here is deterministic, not partial (use-case-errors.md, E2).
-            this.cancelReservationsInParallel(input).forEach(Promise::get);
+            // succeeded, so every leg is compensated (use-case-errors.md, E2).
+            cancelInParallel(legs.stream().map(ReservationLeg::compensation).toList());
             throw holdFailed;
         }
 
@@ -91,68 +94,67 @@ public class TravelBookingSagaWorkflowImpl implements TravelBookingSagaWorkflow 
     }
 
     /**
-     * Stage 1 — parallel reservations (main use case, step 2) with E1 compensation
-     * (use-case-errors.md): on any failure, inspects each leg's {@link Promise} individually
-     * (not via {@code Promise.allOf(...).get()}, which only reports the first failure and leaves
-     * the other legs' individual outcomes unknown to the caller) and cancels only the legs that
-     * actually succeeded, in parallel — no ordering between them, since the legs are independent.
+     * One reservation leg in flight: the {@link Promise} for its {@code reserve*} Activity, paired
+     * with how to compensate it — a {@link Supplier} that, when invoked, issues the leg's
+     * {@code cancel*Reservation} Activity and returns its {@link Promise}. Deferred as a
+     * {@code Supplier} rather than an eager {@code Promise} so a leg that never needs cancelling
+     * never issues the call.
      */
-    private void reserveAllLegsOrCompensate(final TravelBookingSagaInput input) {
-        final Promise<Void> flightReserved = Async.procedure(this.flightActivities::reserveFlight, input.sagaId(), input.flightBooking());
-        final Promise<Void> hotelReserved = Async.procedure(this.hotelActivities::reserveHotel, input.sagaId(), input.hotelBooking());
-        final Promise<Void> carReserved = Async.procedure(this.carActivities::reserveCar, input.sagaId(), input.carBooking());
+    private record ReservationLeg(Promise<Void> reserved,
+            Supplier<Promise<Void>> compensation) {
+    }
 
+    /** Stage 1 — issues all three {@code reserve*} Activities in parallel (main use case, step 2). */
+    private List<ReservationLeg> startReservations(final TravelBookingSagaInput input) {
+        return List.of(
+                new ReservationLeg(
+                        Async.procedure(this.flightActivities::reserveFlight, input.sagaId(), input.flightBooking()),
+                        () -> Async.procedure(this.flightActivities::cancelFlightReservation, input.sagaId())),
+                new ReservationLeg(
+                        Async.procedure(this.hotelActivities::reserveHotel, input.sagaId(), input.hotelBooking()),
+                        () -> Async.procedure(this.hotelActivities::cancelHotelReservation, input.sagaId())),
+                new ReservationLeg(
+                        Async.procedure(this.carActivities::reserveCar, input.sagaId(), input.carBooking()),
+                        () -> Async.procedure(this.carActivities::cancelCarReservation, input.sagaId())));
+    }
+
+    /**
+     * E1 compensation (use-case-errors.md): waits for every leg's reservation, inspecting each
+     * {@link Promise} individually rather than via {@code Promise.allOf(...).get()} — which would
+     * surface only the first failure and leave the other legs' outcomes unknown. If all succeed,
+     * returns. If any fail, cancels the legs that <em>did</em> succeed in parallel (order between
+     * them doesn't matter — the legs are independent), waits for those compensations, then rethrows
+     * the first reservation failure in leg order.
+     */
+    private static void awaitReservationsOrCompensate(final List<ReservationLeg> legs) {
         RuntimeException firstFailure = null;
-        boolean flightSucceeded = false;
-        boolean hotelSucceeded = false;
-        boolean carSucceeded = false;
+        final List<Supplier<Promise<Void>>> succeededLegCompensations = new ArrayList<>();
 
-        try {
-            flightReserved.get();
-            flightSucceeded = true;
-        } catch (final RuntimeException error) {
-            firstFailure = error;
-        }
-        try {
-            hotelReserved.get();
-            hotelSucceeded = true;
-        } catch (final RuntimeException error) {
-            firstFailure = firstFailure == null ? error : firstFailure;
-        }
-        try {
-            carReserved.get();
-            carSucceeded = true;
-        } catch (final RuntimeException error) {
-            firstFailure = firstFailure == null ? error : firstFailure;
+        for (final ReservationLeg leg : legs) {
+            try {
+                leg.reserved().get();
+                succeededLegCompensations.add(leg.compensation());
+            } catch (final RuntimeException reservationFailed) {
+                if (firstFailure == null) {
+                    firstFailure = reservationFailed;
+                }
+            }
         }
 
         if (firstFailure == null) {
             return;
         }
-
-        this.cancelSucceededReservationsInParallel(input, flightSucceeded, hotelSucceeded, carSucceeded).forEach(Promise::get);
+        cancelInParallel(succeededLegCompensations);
         throw firstFailure;
     }
 
-    private List<Promise<Void>> cancelSucceededReservationsInParallel(final TravelBookingSagaInput input,
-            final boolean flightSucceeded,
-            final boolean hotelSucceeded,
-            final boolean carSucceeded) {
-        final List<Promise<Void>> compensations = new ArrayList<>();
-        if (flightSucceeded) {
-            compensations.add(Async.procedure(this.flightActivities::cancelFlightReservation, input.sagaId()));
+    /** Issues every compensation (starting them all in parallel), then waits for all of them. */
+    private static void cancelInParallel(final List<Supplier<Promise<Void>>> compensations) {
+        final List<Promise<Void>> pending = new ArrayList<>();
+        for (final Supplier<Promise<Void>> compensation : compensations) {
+            pending.add(compensation.get());
         }
-        if (hotelSucceeded) {
-            compensations.add(Async.procedure(this.hotelActivities::cancelHotelReservation, input.sagaId()));
-        }
-        if (carSucceeded) {
-            compensations.add(Async.procedure(this.carActivities::cancelCarReservation, input.sagaId()));
-        }
-        return compensations;
-    }
-
-    private List<Promise<Void>> cancelReservationsInParallel(final TravelBookingSagaInput input) {
-        return this.cancelSucceededReservationsInParallel(input, true, true, true);
+        pending.forEach(Promise::get);
     }
 
     @Override
