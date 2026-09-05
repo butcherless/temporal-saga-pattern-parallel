@@ -18,11 +18,14 @@ import io.temporal.worker.Worker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.DEFAULT_PAYMENT_TOKEN;
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.defaultCarBooking;
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.defaultFlightBooking;
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.defaultHotelBooking;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -271,10 +274,8 @@ class TravelBookingSagaWorkflowImplTest {
     }
 
     private static TravelBookingSagaInput defaultInput(final UUID sagaId) {
-        return new TravelBookingSagaInput(sagaId, "biz-2026-08-13-0001", "agency-042", "pat_9f3e2b7c8a1d4e5f",
-                new FlightBookingRequest("IB6275", "MAD", "CDG", LocalDate.of(2026, 9, 10), 2, UUID.randomUUID()),
-                new HotelBookingRequest("HTL-PARIS-014", "DOUBLE_DELUXE", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), 2, UUID.randomUUID()),
-                new CarBookingRequest("COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), UUID.randomUUID()));
+        return new TravelBookingSagaInput(sagaId, "biz-2026-08-13-0001", "agency-042", DEFAULT_PAYMENT_TOKEN,
+                defaultFlightBooking(), defaultHotelBooking(), defaultCarBooking());
     }
 
     /**

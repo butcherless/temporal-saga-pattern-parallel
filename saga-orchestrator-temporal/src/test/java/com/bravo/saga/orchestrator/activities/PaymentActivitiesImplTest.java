@@ -10,6 +10,8 @@ import org.springframework.web.reactive.function.client.ExchangeFunction;
 
 import java.util.UUID;
 
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.DEFAULT_PAYMENT_TOKEN;
+
 @ExtendWith(MockitoExtension.class)
 class PaymentActivitiesImplTest {
 
@@ -28,7 +30,7 @@ class PaymentActivitiesImplTest {
     void holdPaymentPostsToTheHoldsEndpoint() {
         final UUID sagaId = UUID.randomUUID();
 
-        this.activities.holdPayment(sagaId, "pat_9f3e2b7c8a1d4e5f");
+        this.activities.holdPayment(sagaId, DEFAULT_PAYMENT_TOKEN);
 
         ExchangeFunctionStub.assertPostedTo(this.exchangeFunction, "/payment-holds");
     }

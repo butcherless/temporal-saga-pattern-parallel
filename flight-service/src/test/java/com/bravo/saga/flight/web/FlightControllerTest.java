@@ -17,9 +17,10 @@ import org.springframework.test.web.reactive.server.WebTestClient.ResponseSpec;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.UUID;
 
+import static com.bravo.saga.flight.FlightTestFixtures.sampleBooking;
+import static com.bravo.saga.leg.web.LegControllerTestSupport.assertProblemDetail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -36,10 +37,6 @@ class FlightControllerTest {
         this.client = WebTestClient.bindToController(new FlightController(this.flightReservationProgressionService, 0, 0))
                 .controllerAdvice(new LegReservationRestExceptionHandler())
                 .build();
-    }
-
-    private static FlightBookingRequest sampleBooking() {
-        return new FlightBookingRequest("IB6275", "MAD", "CDG", LocalDate.of(2026, 9, 10), 2, UUID.randomUUID());
     }
 
     private static String sampleRequestJson(final UUID sagaId,
@@ -142,15 +139,5 @@ class FlightControllerTest {
         final ResponseSpec response = this.client.post().uri("/flight-reservations/{sagaId}/cancel", sagaId).exchange();
 
         assertProblemDetail(response, 409, "Cannot transition reservation from CONFIRMED to CANCELLED");
-    }
-
-    private static void assertProblemDetail(final ResponseSpec response,
-            final int expectedStatus,
-            final String expectedDetail) {
-        response.expectStatus().isEqualTo(expectedStatus)
-                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody()
-                .jsonPath("$.status").isEqualTo(expectedStatus)
-                .jsonPath("$.detail").isEqualTo(expectedDetail);
     }
 }

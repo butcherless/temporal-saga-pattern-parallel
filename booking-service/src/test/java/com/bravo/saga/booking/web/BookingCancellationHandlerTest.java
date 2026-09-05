@@ -4,9 +4,6 @@ import com.bravo.saga.booking.domain.TravelBooking;
 import com.bravo.saga.booking.domain.TravelBookingStatus;
 import com.bravo.saga.booking.service.CancelBookingRequest;
 import com.bravo.saga.booking.service.TravelBookingProgressionService;
-import com.bravo.saga.common.workflow.CarBookingRequest;
-import com.bravo.saga.common.workflow.FlightBookingRequest;
-import com.bravo.saga.common.workflow.HotelBookingRequest;
 import com.bravo.saga.common.workflow.SagaTaskQueues;
 import com.bravo.saga.common.workflow.TravelBookingSagaInput;
 import com.bravo.saga.common.workflow.TravelBookingSagaWorkflow;
@@ -26,9 +23,10 @@ import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.UUID;
 
+import static com.bravo.saga.booking.web.BookingTestFixtures.OPERATOR_ID;
+import static com.bravo.saga.booking.web.BookingTestFixtures.sampleSagaInput;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -72,7 +70,7 @@ class BookingCancellationHandlerTest {
         final String businessKey = "biz-2026-08-13-0007";
         final TravelBookingSagaWorkflow running = this.startFakeWorkflow(businessKey);
 
-        final TravelBooking pending = TravelBooking.create(sagaId, businessKey, "agency-042", Instant.now());
+        final TravelBooking pending = TravelBooking.create(sagaId, businessKey, OPERATOR_ID, Instant.now());
         when(this.travelBookingProgressionService.validateCancellable(any(CancelBookingRequest.class)))
                 .thenReturn(Mono.just(pending));
 
@@ -96,7 +94,7 @@ class BookingCancellationHandlerTest {
 
         final UUID sagaId = UUID.randomUUID();
         final TravelBooking alreadyCancelled = new TravelBooking(
-                sagaId, "biz-2026-08-13-0008", "agency-042", TravelBookingStatus.CANCELLED, Instant.now(), Instant.now(), null);
+                sagaId, "biz-2026-08-13-0008", OPERATOR_ID, TravelBookingStatus.CANCELLED, Instant.now(), Instant.now(), null);
         when(this.travelBookingProgressionService.validateCancellable(any(CancelBookingRequest.class)))
                 .thenReturn(Mono.just(alreadyCancelled));
 
@@ -131,15 +129,8 @@ class BookingCancellationHandlerTest {
         final TravelBookingSagaWorkflow stub = this.testEnv.getWorkflowClient().newWorkflowStub(
                 TravelBookingSagaWorkflow.class,
                 WorkflowOptions.newBuilder().setWorkflowId(businessKey).setTaskQueue(SagaTaskQueues.TRAVEL_BOOKING_SAGA).build());
-        WorkflowClient.start(stub::process, sagaInput(businessKey));
+        WorkflowClient.start(stub::process, sampleSagaInput(UUID.randomUUID(), businessKey, OPERATOR_ID));
         return stub;
-    }
-
-    private static TravelBookingSagaInput sagaInput(final String businessKey) {
-        return new TravelBookingSagaInput(UUID.randomUUID(), businessKey, "agency-042", "pat_9f3e2b7c8a1d4e5f",
-                new FlightBookingRequest("IB6275", "MAD", "CDG", LocalDate.of(2026, 9, 10), 2, UUID.randomUUID()),
-                new HotelBookingRequest("HTL-PARIS-014", "DOUBLE_DELUXE", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), 2, UUID.randomUUID()),
-                new CarBookingRequest("COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), UUID.randomUUID()));
     }
 
     /** Blocks in {@code process()} until the {@code cancel} signal arrives, then completes. */

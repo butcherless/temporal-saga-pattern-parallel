@@ -51,6 +51,10 @@
         <maven-failsafe-plugin.version>3.5.6</maven-failsafe-plugin.version>
         <!-- 0.8.15 is the first release with official (not experimental) Java 25 class-file support. -->
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+        <!-- Not managed by the Spring Boot BOM; only leg-common binds this plugin explicitly, to
+             publish a test-jar of its test-support helpers for flight-service/hotel-service/car-service
+             to share. -->
+        <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -142,6 +146,11 @@
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>${jacoco-maven-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>${maven-jar-plugin.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>

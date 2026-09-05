@@ -9,8 +9,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
 
-import java.time.LocalDate;
 import java.util.UUID;
+
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.defaultCarBooking;
 
 @ExtendWith(MockitoExtension.class)
 class CarActivitiesImplTest {
@@ -29,8 +30,7 @@ class CarActivitiesImplTest {
     @Test
     void reserveCarPostsToTheReservationsEndpoint() {
         final UUID sagaId = UUID.randomUUID();
-        final CarBookingRequest booking = new CarBookingRequest(
-                "COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), UUID.randomUUID());
+        final CarBookingRequest booking = defaultCarBooking();
 
         this.activities.reserveCar(sagaId, booking);
 

@@ -9,8 +9,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
 
-import java.time.LocalDate;
 import java.util.UUID;
+
+import static com.bravo.saga.orchestrator.activities.BookingRequestFixtures.defaultHotelBooking;
 
 @ExtendWith(MockitoExtension.class)
 class HotelActivitiesImplTest {
@@ -29,8 +30,7 @@ class HotelActivitiesImplTest {
     @Test
     void reserveHotelPostsToTheReservationsEndpoint() {
         final UUID sagaId = UUID.randomUUID();
-        final HotelBookingRequest booking = new HotelBookingRequest(
-                "HTL-PARIS-014", "DOUBLE_DELUXE", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), 2, UUID.randomUUID());
+        final HotelBookingRequest booking = defaultHotelBooking();
 
         this.activities.reserveHotel(sagaId, booking);
 

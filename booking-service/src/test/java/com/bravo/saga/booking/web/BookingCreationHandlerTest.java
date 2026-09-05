@@ -3,9 +3,6 @@ package com.bravo.saga.booking.web;
 import com.bravo.saga.booking.domain.TravelBooking;
 import com.bravo.saga.booking.service.CreateBookingRequest;
 import com.bravo.saga.booking.service.TravelBookingProgressionService;
-import com.bravo.saga.common.workflow.CarBookingRequest;
-import com.bravo.saga.common.workflow.FlightBookingRequest;
-import com.bravo.saga.common.workflow.HotelBookingRequest;
 import com.bravo.saga.common.workflow.SagaTaskQueues;
 import com.bravo.saga.common.workflow.TravelBookingSagaInput;
 import com.bravo.saga.common.workflow.TravelBookingSagaWorkflow;
@@ -25,11 +22,12 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 
-import java.time.LocalDate;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bravo.saga.booking.web.BookingTestFixtures.sampleCreateBookingRequestBody;
+import static com.bravo.saga.booking.web.BookingTestFixtures.sampleSagaInput;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -70,7 +68,7 @@ class BookingCreationHandlerTest {
         final AtomicReference<TravelBookingSagaInput> receivedInput = new AtomicReference<>();
         this.registerFakeWorkflow(receivedInput);
 
-        final CreateBookingRequestBody request = validRequest("agency-042", "biz-2026-08-13-0001");
+        final CreateBookingRequestBody request = sampleCreateBookingRequestBody("agency-042", "biz-2026-08-13-0001");
         when(this.travelBookingProgressionService.createBooking(any())).thenAnswer(invocation -> {
             final CreateBookingRequest req = invocation.getArgument(0);
             return Mono.just(TravelBooking.create(req.sagaId(), req.businessKey(), req.operatorId(), req.now()));
@@ -96,7 +94,7 @@ class BookingCreationHandlerTest {
 
     @Test
     void createBookingPropagatesUncaughtErrorsWithoutStartingTheWorkflow() {
-        final CreateBookingRequestBody request = validRequest("agency-042", null);
+        final CreateBookingRequestBody request = sampleCreateBookingRequestBody("agency-042", null);
         when(this.travelBookingProgressionService.createBooking(any())).thenReturn(Mono.error(new IllegalStateException("boom")));
 
         StepVerifier.create(this.handler.createBooking(request))
@@ -117,7 +115,7 @@ class BookingCreationHandlerTest {
         final BookingCreationHandler handlerWithMockClient =
                 new BookingCreationHandler(this.travelBookingProgressionService, mockWorkflowClient, Schedulers.immediate());
 
-        final CreateBookingRequestBody request = validRequest("agency-042", "biz-2026-08-13-0002");
+        final CreateBookingRequestBody request = sampleCreateBookingRequestBody("agency-042", "biz-2026-08-13-0002");
         final TravelBooking preExistingBooking = TravelBooking.create(UUID.randomUUID(), "biz-2026-08-13-0002", "agency-042", Instant.now());
         when(this.travelBookingProgressionService.createBooking(any())).thenReturn(Mono.just(preExistingBooking));
 
@@ -150,7 +148,7 @@ class BookingCreationHandlerTest {
                 WorkflowOptions.newBuilder().setWorkflowId(businessKey).setTaskQueue(SagaTaskQueues.TRAVEL_BOOKING_SAGA).build());
         WorkflowClient.start(alreadyRunning::process, blockForeverInput(businessKey));
 
-        final CreateBookingRequestBody request = validRequest("agency-042", businessKey);
+        final CreateBookingRequestBody request = sampleCreateBookingRequestBody("agency-042", businessKey);
         when(this.travelBookingProgressionService.createBooking(any())).thenAnswer(invocation -> {
             final CreateBookingRequest req = invocation.getArgument(0);
             return Mono.just(TravelBooking.create(req.sagaId(), req.businessKey(), req.operatorId(), req.now()));
@@ -168,26 +166,8 @@ class BookingCreationHandlerTest {
         this.testEnv.start();
     }
 
-    private static CreateBookingRequestBody validRequest(final String operatorId,
-            final String businessKey) {
-        return new CreateBookingRequestBody(
-                operatorId,
-                "pat_9f3e2b7c8a1d4e5f",
-                new FlightLegRequestBody("IB6275", "MAD", "CDG", LocalDate.of(2026, 9, 10), 2, UUID.randomUUID()),
-                new HotelLegRequestBody("HTL-PARIS-014", "DOUBLE_DELUXE", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), 2, UUID.randomUUID()),
-                new CarLegRequestBody("COMPACT", "CDG", LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 14), UUID.randomUUID()),
-                businessKey);
-    }
-
     private static TravelBookingSagaInput blockForeverInput(final String businessKey) {
-        final CreateBookingRequestBody request = validRequest(FakeTravelBookingSagaWorkflow.BLOCK_FOREVER_OPERATOR_ID, businessKey);
-        return new TravelBookingSagaInput(UUID.randomUUID(), businessKey, request.operatorId(), request.paymentAuthorizationToken(),
-                new FlightBookingRequest(request.flight().flightNumber(), request.flight().originAirportCode(),
-                        request.flight().destinationAirportCode(), request.flight().departureDate(), request.flight().passengerCount(), request.flight().offerReference()),
-                new HotelBookingRequest(request.hotel().hotelCode(), request.hotel().roomType(),
-                        request.hotel().checkInDate(), request.hotel().checkOutDate(), request.hotel().guestCount(), request.hotel().offerReference()),
-                new CarBookingRequest(request.car().carCategory(), request.car().pickupLocation(),
-                        request.car().pickupDate(), request.car().dropoffDate(), request.car().offerReference()));
+        return sampleSagaInput(UUID.randomUUID(), businessKey, FakeTravelBookingSagaWorkflow.BLOCK_FOREVER_OPERATOR_ID);
     }
 
     public static class FakeTravelBookingSagaWorkflow implements TravelBookingSagaWorkflow {

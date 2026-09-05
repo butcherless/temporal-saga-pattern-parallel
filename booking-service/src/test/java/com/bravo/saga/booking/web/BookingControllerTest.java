@@ -19,6 +19,7 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.UUID;
 
+import static com.bravo.saga.booking.web.BookingTestFixtures.sampleBuyRequestJson;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -65,7 +66,7 @@ class BookingControllerTest {
 
         this.client.post().uri("/travel-bookings")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(validBuyRequestJson("biz-2026-08-13-0001"))
+                .bodyValue(sampleBuyRequestJson("biz-2026-08-13-0001"))
                 .exchange()
                 .expectStatus().isEqualTo(202)
                 .expectBody()
@@ -84,7 +85,7 @@ class BookingControllerTest {
 
         this.client.post().uri("/travel-bookings")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(validBuyRequestJson("biz-2026-08-13-0001"))
+                .bodyValue(sampleBuyRequestJson("biz-2026-08-13-0001"))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -226,18 +227,6 @@ class BookingControllerTest {
         final ResponseSpec response = this.client.get().uri("/travel-bookings/{sagaId}", sagaId).exchange();
 
         assertProblemDetail(response, 404, "No booking found for sagaId " + sagaId);
-    }
-
-    private static String validBuyRequestJson(final String businessKey) {
-        return """
-                {
-                  "operatorId": "agency-042",
-                  "paymentAuthorizationToken": "pat_9f3e2b7c8a1d4e5f",
-                  "businessKey": "%s",
-                  "flight": {"flightNumber":"IB6275","originAirportCode":"MAD","destinationAirportCode":"CDG","departureDate":"2026-09-10","passengerCount":2,"offerReference":"b6e1a1d2-4b9e-4a3a-9c2e-6f2b8b1a9e10"},
-                  "hotel": {"hotelCode":"HTL-PARIS-014","roomType":"DOUBLE_DELUXE","checkInDate":"2026-09-10","checkOutDate":"2026-09-14","guestCount":2,"offerReference":"c7f2b2e3-5c0f-4b4b-8d3f-7a3c9c2b0f21"},
-                  "car": {"carCategory":"COMPACT","pickupLocation":"CDG","pickupDate":"2026-09-10","dropoffDate":"2026-09-14","offerReference":"d8a3c3f4-6d1a-4c5c-9e4a-8b4d0d3c1f32"}
-                }""".formatted(businessKey);
     }
 
     /**
