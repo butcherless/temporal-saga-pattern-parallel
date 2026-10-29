@@ -78,7 +78,7 @@ class TravelBookingEndToEndSagaIT {
      * which bumps this for the same reason) — raised here to match.
      */
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.4-alpine")
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.6-alpine")
             .withCommand("postgres", "-c", "max_connections=300")
             .withEnv("POSTGRES_MULTIPLE_DATABASES", "booking_db,flight_db,hotel_db,car_db,payment_db")
             .withCopyFileToContainer(
@@ -86,7 +86,7 @@ class TravelBookingEndToEndSagaIT {
                     "/docker-entrypoint-initdb.d/init-multiple-databases.sh");
 
     @Container
-    static final GenericContainer<?> TEMPORAL = new GenericContainer<>("temporalio/temporal:1.8.2")
+    static final GenericContainer<?> TEMPORAL = new GenericContainer<>("temporalio/temporal:1.9.1")
             .withCommand("server", "start-dev", "--ip", "0.0.0.0")
             .withExposedPorts(TEMPORAL_GRPC_PORT);
 

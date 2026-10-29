@@ -34,27 +34,29 @@
 
         <maven.min.version>3.9.0</maven.min.version>
 
-        <spring-boot.version>4.1.1</spring-boot.version>
+        <spring-boot.version>4.1.2</spring-boot.version>
         <!-- Same floor and same reason as temporal-saga-pattern's root pom: 1.38.0 is required for
              https://github.com/temporalio/sdk-java/pull/2957, which VirtualThreadWorkerOptionsCustomizer
              relies on being correct to keep virtual threads scoped to the Activity worker only. -->
-        <temporal.version>1.38.0</temporal.version>
+        <temporal.version>1.40.0</temporal.version>
         <resilience4j.version>2.4.0</resilience4j.version>
+        <!-- Not managed by the Spring Boot BOM. -->
+        <springdoc.version>3.2.0</springdoc.version>
         <!-- Matches the version the Spring Boot BOM manages; pinned explicitly because
              annotationProcessorPaths entries below don't inherit from dependencyManagement. -->
-        <lombok.version>1.18.46</lombok.version>
+        <lombok.version>1.18.48</lombok.version>
 
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
-        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <!-- Not managed by the Spring Boot BOM; only modules with Testcontainers-based
              integration tests (*IT.java) bind this plugin explicitly. -->
-        <maven-failsafe-plugin.version>3.5.6</maven-failsafe-plugin.version>
+        <maven-failsafe-plugin.version>3.6.1</maven-failsafe-plugin.version>
         <!-- 0.8.15 is the first release with official (not experimental) Java 25 class-file support. -->
-        <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+        <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
         <!-- Not managed by the Spring Boot BOM; only leg-common binds this plugin explicitly, to
              publish a test-jar of its test-support helpers for flight-service/hotel-service/car-service
              to share. -->
-        <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
+        <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -71,7 +73,7 @@
                  temporal-saga-pattern's root pom documents (confirmed there via
                  `mvn dependency:tree -Dverbose`) — pinned here for the same reason, since this
                  repo pulls in the same temporal-sdk. Versions track the highest any path in the
-                 graph requests; the Spring Boot 4.1.1 BOM aligned gRPC to 1.83.1, which raised
+                 graph requests; the Spring Boot 4.1.2 BOM aligned gRPC to 1.83.1, which raised
                  the ceiling on error_prone_annotations (2.45.0 -> 2.50.0) and pulled gson above
                  the BOM-managed 2.13.2, so gson is pinned here too now. -->
             <dependency>
